@@ -104,7 +104,7 @@ function PlannerCell({
     <div
       ref={setNodeRef}
       className={cn(
-        'min-h-[80px] p-1.5 space-y-1 border-r border-b transition-colors',
+        'min-h-[80px] min-w-0 p-1.5 space-y-1 border-r border-b transition-colors',
         isOver && 'bg-indigo-50',
         canEdit && 'cursor-pointer hover:bg-gray-50'
       )}

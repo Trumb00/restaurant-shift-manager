@@ -50,7 +50,7 @@ export function ShiftCard({ shift, onClick }: ShiftCardProps) {
       ref={setNodeRef}
       style={{ ...style, borderLeftColor: shift.role_color, backgroundColor: `${shift.role_color}18` }}
       className={cn(
-        'flex items-center gap-1.5 px-2 py-1 rounded border-l-2 cursor-grab text-xs group select-none',
+        'flex items-center gap-1.5 px-2 py-1 rounded border-l-2 cursor-grab text-xs group select-none min-w-0',
         isDragging && 'opacity-50 cursor-grabbing',
         shift.is_split_shift && 'border-dashed'
       )}
