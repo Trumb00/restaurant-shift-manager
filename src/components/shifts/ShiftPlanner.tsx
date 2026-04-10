@@ -430,21 +430,21 @@ export function ShiftPlanner({
             </div>
           )}
         </DragOverlay>
-      </DndContext>
 
-      {/* Employee DnD panel */}
-      {canEdit && employees.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-            Dipendenti — trascina sulla cella per assegnare rapidamente
-          </p>
-          <div className="flex gap-2 flex-wrap">
-            {employees.map((emp) => (
-              <DraggableEmployee key={emp.id} emp={emp} />
-            ))}
+        {/* Employee DnD panel */}
+        {canEdit && employees.length > 0 && (
+          <div className="space-y-2 mt-4">
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              Dipendenti — trascina sulla cella per assegnare rapidamente
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              {employees.map((emp) => (
+                <DraggableEmployee key={emp.id} emp={emp} />
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </DndContext>
 
       {/* Shift dialog */}
       {selectedCell && (

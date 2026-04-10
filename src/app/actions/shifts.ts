@@ -44,6 +44,21 @@ export async function validateShiftConstraints(data: ShiftInput): Promise<Valida
     return { errors, warnings }
   }
 
+  // 0. Duplicate assignment (hard error)
+  const { data: duplicate } = await supabase
+    .from('shifts')
+    .select('id')
+    .eq('employee_id', data.employee_id)
+    .eq('time_slot_id', data.time_slot_id)
+    .eq('date', data.date)
+    .neq('status', 'cancelled')
+    .maybeSingle()
+
+  if (duplicate) {
+    errors.push('Questo dipendente è già assegnato a questa fascia oraria in questa data.')
+    return { errors, warnings }
+  }
+
   const shiftDate = data.date
   // Use custom times if provided, otherwise fall back to slot times
   const startTimeStr = data.custom_start ?? slot.start_time.slice(0, 5)
@@ -85,7 +100,7 @@ export async function validateShiftConstraints(data: ShiftInput): Promise<Valida
     }
   }
   if (dailyHours > 12) {
-    warnings.push(`Ore giornaliere elevate: ${dailyHours.toFixed(1)}h (soglia 12h). Puoi procedere.`)
+    warnings.push(`Ore giornaliere elevate: ${dailyHours.toFixed(1)}h (soglia 12h).`)
   }
 
   // 3. Minimum rest between shifts (11h) — soft warning, bidirectional check
@@ -108,13 +123,13 @@ export async function validateShiftConstraints(data: ShiftInput): Promise<Valida
       // Gap: existing shift ends, new shift starts
       const gapBefore = startMs - prevEnd
       if (gapBefore > 0 && gapBefore < 11 * 3600000) {
-        warnings.push(`Riposo insufficiente: solo ${(gapBefore / 3600000).toFixed(1)}h prima di questo turno (minimo 11h). Puoi procedere.`)
+        warnings.push(`Riposo insufficiente: solo ${(gapBefore / 3600000).toFixed(1)}h prima di questo turno (minimo 11h).`)
       }
 
       // Gap: new shift ends, existing shift starts
       const gapAfter = prevStart - endMs
       if (gapAfter > 0 && gapAfter < 11 * 3600000) {
-        warnings.push(`Riposo insufficiente: solo ${(gapAfter / 3600000).toFixed(1)}h dopo questo turno (minimo 11h). Puoi procedere.`)
+        warnings.push(`Riposo insufficiente: solo ${(gapAfter / 3600000).toFixed(1)}h dopo questo turno (minimo 11h).`)
       }
     }
   }
@@ -155,7 +170,7 @@ export async function validateShiftConstraints(data: ShiftInput): Promise<Valida
     }
     const maxWeekly = employee.weekly_hours_contract * 1.25
     if (weeklyHours > maxWeekly) {
-      warnings.push(`Ore settimanali elevate: ${weeklyHours.toFixed(1)}h (soglia ${maxWeekly.toFixed(1)}h). Puoi procedere.`)
+      warnings.push(`Ore settimanali elevate: ${weeklyHours.toFixed(1)}h (soglia ${maxWeekly.toFixed(1)}h).`)
     }
   }
 

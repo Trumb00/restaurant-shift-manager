@@ -63,7 +63,7 @@ export function ShiftDialog({
   const [deleting, setDeleting] = React.useState(false)
   const [errors, setErrors] = React.useState<string[]>([])
   const [warnings, setWarnings] = React.useState<string[]>([])
-
+  const [warningsConfirmed, setWarningsConfirmed] = React.useState(false)
   React.useEffect(() => {
     if (open) {
       setEmployeeId(initialEmployeeId ?? '')
@@ -76,6 +76,7 @@ export function ShiftDialog({
       setCustomEnd('')
       setErrors([])
       setWarnings([])
+      setWarningsConfirmed(false)
     }
   }, [open, timeSlotId, initialEmployeeId])
 
@@ -114,6 +115,7 @@ export function ShiftDialog({
     })
     setErrors(result.errors)
     setWarnings(result.warnings)
+    setWarningsConfirmed(false)
   }
 
   React.useEffect(() => {
@@ -190,13 +192,30 @@ export function ShiftDialog({
             </div>
           )}
           {warnings.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-1">
-              {warnings.map((w, i) => (
+            <div className={cn(
+              'border rounded-lg p-3 space-y-2',
+              warningsConfirmed ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'
+            )}>
+              {!warningsConfirmed && warnings.map((w, i) => (
                 <div key={i} className="flex items-start gap-2 text-sm text-amber-700">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>{w}</span>
                 </div>
               ))}
+              {warningsConfirmed ? (
+                <div className="flex items-center gap-2 text-sm text-green-700 font-medium">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  Avvisi confermati — puoi salvare.
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setWarningsConfirmed(true)}
+                  className="mt-1 w-full text-sm font-medium py-1.5 px-3 rounded-md bg-amber-100 hover:bg-amber-200 text-amber-800 border border-amber-300 transition-colors"
+                >
+                  Sono consapevole, procedi
+                </button>
+              )}
             </div>
           )}
 
@@ -344,7 +363,7 @@ export function ShiftDialog({
           )}
           <div className="flex gap-2 ml-auto">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Annulla</Button>
-            <Button onClick={handleSave} disabled={loading || errors.length > 0}>
+            <Button onClick={handleSave} disabled={loading || errors.length > 0 || (warnings.length > 0 && !warningsConfirmed)}>
               {loading ? 'Salvataggio...' : 'Salva'}
             </Button>
           </div>
