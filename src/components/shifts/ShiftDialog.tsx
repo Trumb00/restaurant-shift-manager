@@ -61,6 +61,7 @@ export function ShiftDialog({
   const [customEnd, setCustomEnd] = React.useState('')
   const [loading, setLoading] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
+  const [isValidating, setIsValidating] = React.useState(false)
   const [errors, setErrors] = React.useState<string[]>([])
   const [warnings, setWarnings] = React.useState<string[]>([])
   const [warningsConfirmed, setWarningsConfirmed] = React.useState(false)
@@ -77,6 +78,7 @@ export function ShiftDialog({
       setErrors([])
       setWarnings([])
       setWarningsConfirmed(false)
+      setIsValidating(false)
     }
   }, [open, timeSlotId, initialEmployeeId])
 
@@ -104,6 +106,7 @@ export function ShiftDialog({
 
   async function handleValidate() {
     if (!employeeId || !roleId || !slotId) return
+    setIsValidating(true)
     const result = await validateShiftConstraints({
       schedule_id: scheduleId,
       employee_id: employeeId,
@@ -116,6 +119,7 @@ export function ShiftDialog({
     setErrors(result.errors)
     setWarnings(result.warnings)
     setWarningsConfirmed(false)
+    setIsValidating(false)
   }
 
   React.useEffect(() => {
@@ -132,6 +136,10 @@ export function ShiftDialog({
     }
     if (errors.length > 0) {
       toast({ title: 'Vincoli violati', description: 'Correggi gli errori prima di salvare.', variant: 'destructive' })
+      return
+    }
+    if (warnings.length > 0 && !warningsConfirmed) {
+      toast({ title: 'Conferma richiesta', description: 'Clicca "Sono consapevole, procedi" per confermare gli avvisi.', variant: 'destructive' })
       return
     }
     setLoading(true)
@@ -363,8 +371,8 @@ export function ShiftDialog({
           )}
           <div className="flex gap-2 ml-auto">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Annulla</Button>
-            <Button onClick={handleSave} disabled={loading || errors.length > 0 || (warnings.length > 0 && !warningsConfirmed)}>
-              {loading ? 'Salvataggio...' : 'Salva'}
+            <Button onClick={handleSave} disabled={loading || isValidating || errors.length > 0 || (warnings.length > 0 && !warningsConfirmed)}>
+              {loading ? 'Salvataggio...' : isValidating ? 'Verifica...' : 'Salva'}
             </Button>
           </div>
         </DialogFooter>

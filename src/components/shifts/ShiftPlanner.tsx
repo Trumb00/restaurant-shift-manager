@@ -18,13 +18,11 @@ import { CoverageIndicator } from './CoverageIndicator'
 import { WeekNavigator } from './WeekNavigator'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { updateShift, copyWeekSchedule } from '@/app/actions/shifts'
 import { useToast } from '@/hooks/use-toast'
 import { Plus, Send, Copy } from 'lucide-react'
-import { formatTime, dayOfWeekLabel, getWeekStart } from '@/lib/utils'
+import { formatTime, dayOfWeekLabel, getISOWeekNumber } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 
@@ -160,7 +158,7 @@ export function ShiftPlanner({
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [publishOpen, setPublishOpen] = React.useState(false)
   const [copyOpen, setCopyOpen] = React.useState(false)
-  const [targetDate, setTargetDate] = React.useState('')
+  const [selectedWeeks, setSelectedWeeks] = React.useState<Set<string>>(new Set())
   const [copying, setCopying] = React.useState(false)
   const [selectedCell, setSelectedCell] = React.useState<{ slotId: string; date: string } | null>(null)
   const [editShiftId, setEditShiftId] = React.useState<string | undefined>()
@@ -208,6 +206,25 @@ export function ShiftPlanner({
     }
     return map
   }, [shiftMap, timeSlots, weekDates, serviceRequirements])
+
+  // Generate 20 upcoming weeks for the copy dialog
+  const targetWeeks = React.useMemo(() => {
+    const weeks: Array<{ weekStart: string; weekEnd: string; weekNum: number; label: string }> = []
+    const fmt = (d: Date) => d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+    for (let i = 1; i <= 20; i++) {
+      const start = new Date(weekStart)
+      start.setUTCDate(start.getUTCDate() + i * 7)
+      const end = new Date(start)
+      end.setUTCDate(start.getUTCDate() + 6)
+      weeks.push({
+        weekStart: start.toISOString().split('T')[0],
+        weekEnd: end.toISOString().split('T')[0],
+        weekNum: getISOWeekNumber(start),
+        label: `Sett. ${getISOWeekNumber(start)} · ${fmt(start)} – ${fmt(end)} ${end.getUTCFullYear()}`,
+      })
+    }
+    return weeks
+  }, [weekStart])
 
   function openAddDialog(slotId: string, date: string, employeeId?: string) {
     if (!canEdit) return
@@ -257,19 +274,26 @@ export function ShiftPlanner({
   }
 
   async function handleCopyWeek() {
-    if (!targetDate) return
+    if (selectedWeeks.size === 0) return
     setCopying(true)
-    const targetWeekStart = getWeekStart(new Date(targetDate + 'T12:00:00')).toISOString().split('T')[0]
-    const result = await copyWeekSchedule(scheduleId, targetWeekStart)
-    setCopying(false)
-    if (result.error) {
-      toast({ title: 'Errore', description: result.error, variant: 'destructive' })
-    } else {
-      toast({ title: 'Settimana copiata!', description: `Turni copiati nella settimana del ${targetWeekStart}` })
-      setCopyOpen(false)
-      setTargetDate('')
-      router.push(`/dashboard/turni?week=${targetWeekStart}`)
+    let firstCopied: string | undefined
+    for (const ws of [...selectedWeeks].sort()) {
+      const result = await copyWeekSchedule(scheduleId, ws)
+      if (result.error) {
+        toast({ title: 'Errore', description: result.error, variant: 'destructive' })
+        setCopying(false)
+        return
+      }
+      if (!firstCopied) firstCopied = ws
     }
+    setCopying(false)
+    toast({
+      title: 'Copia completata!',
+      description: `Turni copiati in ${selectedWeeks.size} settiman${selectedWeeks.size === 1 ? 'a' : 'e'}.`,
+    })
+    setCopyOpen(false)
+    setSelectedWeeks(new Set())
+    if (firstCopied) router.push(`/dashboard/turni?week=${firstCopied}`)
   }
 
   const uniqueEmployees = [...new Set(shifts.map((s) => s.employee_id))]
@@ -471,28 +495,52 @@ export function ShiftPlanner({
       />
 
       {/* Copy week dialog */}
-      <Dialog open={copyOpen} onOpenChange={setCopyOpen}>
+      <Dialog open={copyOpen} onOpenChange={(o) => { setCopyOpen(o); if (!o) setSelectedWeeks(new Set()) }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Copia settimana</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-3">
             <p className="text-sm text-gray-500">
-              Seleziona una data nella settimana di destinazione. I turni esistenti in bozza verranno sostituiti.
+              Seleziona le settimane di destinazione. I turni esistenti in bozza verranno sostituiti.
             </p>
-            <div className="space-y-1">
-              <Label>Data nella settimana di destinazione</Label>
-              <Input
-                type="date"
-                value={targetDate}
-                onChange={(e) => setTargetDate(e.target.value)}
-              />
+            <div className="max-h-64 overflow-y-auto space-y-0.5 border rounded-lg p-1.5">
+              {targetWeeks.map((w) => {
+                const checked = selectedWeeks.has(w.weekStart)
+                return (
+                  <label
+                    key={w.weekStart}
+                    className={cn(
+                      'flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-sm transition-colors select-none',
+                      checked ? 'bg-indigo-50 text-indigo-800' : 'hover:bg-gray-50 text-gray-700'
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        const next = new Set(selectedWeeks)
+                        if (next.has(w.weekStart)) next.delete(w.weekStart)
+                        else next.add(w.weekStart)
+                        setSelectedWeeks(next)
+                      }}
+                      className="rounded accent-indigo-600"
+                    />
+                    {w.label}
+                  </label>
+                )
+              })}
             </div>
+            {selectedWeeks.size > 0 && (
+              <p className="text-xs text-indigo-600 font-medium">
+                {selectedWeeks.size} settiman{selectedWeeks.size === 1 ? 'a' : 'e'} selezionat{selectedWeeks.size === 1 ? 'a' : 'e'}
+              </p>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCopyOpen(false)}>Annulla</Button>
-            <Button onClick={handleCopyWeek} disabled={!targetDate || copying}>
-              {copying ? 'Copia in corso...' : 'Copia'}
+            <Button variant="outline" onClick={() => { setCopyOpen(false); setSelectedWeeks(new Set()) }}>Annulla</Button>
+            <Button onClick={handleCopyWeek} disabled={selectedWeeks.size === 0 || copying}>
+              {copying ? 'Copia in corso...' : `Copia${selectedWeeks.size > 0 ? ` (${selectedWeeks.size})` : ''}`}
             </Button>
           </DialogFooter>
         </DialogContent>
