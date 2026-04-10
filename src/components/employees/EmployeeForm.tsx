@@ -16,6 +16,8 @@ import { Plus, Trash2 } from 'lucide-react'
 import type { AppRole, ContractType } from '@/lib/supabase/types'
 import { cn } from '@/lib/utils'
 
+const DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab']
+
 const schema = z.object({
   first_name: z.string().min(1, 'Nome obbligatorio'),
   last_name: z.string().min(1, 'Cognome obbligatorio'),
@@ -25,6 +27,7 @@ const schema = z.object({
   weekly_hours_contract: z.number().min(1).max(60),
   hire_date: z.string().optional(),
   app_role: z.enum(['admin', 'manager', 'employee']).optional(),
+  preferred_rest_days: z.array(z.number().min(0).max(6)).max(2).optional(),
   roles: z.array(z.object({
     role_id: z.string().min(1),
     is_primary: z.boolean(),
@@ -75,6 +78,7 @@ export function EmployeeForm({ employeeId, defaultValues, availableRoles, isAdmi
       weekly_hours_contract: 40,
       hire_date: '',
       app_role: 'employee',
+      preferred_rest_days: [],
       roles: [],
       ...defaultValues,
     },
@@ -84,6 +88,17 @@ export function EmployeeForm({ employeeId, defaultValues, availableRoles, isAdmi
     control: form.control,
     name: 'roles',
   })
+
+  const restDays = form.watch('preferred_rest_days') ?? []
+
+  function toggleRestDay(day: number) {
+    const current = form.getValues('preferred_rest_days') ?? []
+    if (current.includes(day)) {
+      form.setValue('preferred_rest_days', current.filter((d) => d !== day))
+    } else if (current.length < 2) {
+      form.setValue('preferred_rest_days', [...current, day])
+    }
+  }
 
   async function onSubmit(values: FormData) {
     setLoading(true)
@@ -193,6 +208,43 @@ export function EmployeeForm({ employeeId, defaultValues, availableRoles, isAdmi
           </Select>
         </div>
       )}
+
+      <Separator />
+
+      {/* Preferred rest days */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label>Giorni di riposo preferiti</Label>
+          <span className="text-xs text-gray-400">{restDays.length}/2 selezionati</span>
+        </div>
+        <div className="flex gap-1.5 flex-wrap">
+          {DAY_LABELS.map((label, i) => {
+            const selected = restDays.includes(i)
+            const disabled = !selected && restDays.length >= 2
+            return (
+              <button
+                key={i}
+                type="button"
+                disabled={disabled}
+                onClick={() => toggleRestDay(i)}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
+                  selected
+                    ? 'bg-orange-500 text-white border-orange-500'
+                    : disabled
+                      ? 'border-gray-100 text-gray-300 cursor-not-allowed'
+                      : 'border-gray-200 text-gray-600 hover:border-orange-300'
+                )}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
+        <p className="text-xs text-gray-400">
+          Un avviso apparirà nel planner se vengono assegnati turni in questi giorni.
+        </p>
+      </div>
 
       <Separator />
 

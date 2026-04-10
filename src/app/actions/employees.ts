@@ -16,6 +16,7 @@ export interface EmployeeInput {
   weekly_hours_contract: number
   hire_date?: string
   app_role?: AppRole
+  preferred_rest_days?: number[]
   roles?: Array<{ role_id: string; is_primary: boolean; proficiency_level: number }>
 }
 
@@ -33,6 +34,8 @@ export async function createEmployee(data: EmployeeInput): Promise<{ id?: string
       weekly_hours_contract: data.weekly_hours_contract,
       hire_date: data.hire_date,
       app_role: data.app_role ?? 'employee',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      preferred_rest_days: (data.preferred_rest_days ?? []) as any,
       is_active: true,
     })
     .select('id')

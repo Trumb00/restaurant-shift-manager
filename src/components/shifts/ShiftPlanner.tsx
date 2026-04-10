@@ -8,6 +8,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  useDraggable,
 } from '@dnd-kit/core'
 import { useDroppable } from '@dnd-kit/core'
 import { ShiftCard } from './ShiftCard'
@@ -17,11 +18,15 @@ import { CoverageIndicator } from './CoverageIndicator'
 import { WeekNavigator } from './WeekNavigator'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { updateShift } from '@/app/actions/shifts'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { updateShift, copyWeekSchedule } from '@/app/actions/shifts'
 import { useToast } from '@/hooks/use-toast'
-import { Plus, Send } from 'lucide-react'
-import { formatTime, dayOfWeekLabel } from '@/lib/utils'
+import { Plus, Send, Copy } from 'lucide-react'
+import { formatTime, dayOfWeekLabel, getWeekStart } from '@/lib/utils'
 import { cn } from '@/lib/utils'
+import { useRouter } from 'next/navigation'
 
 interface ShiftData {
   id: string
@@ -60,6 +65,7 @@ interface ServiceReq {
   role_id: string
   min_count: number
   ideal_count: number
+  days_of_week: number[] | null
   roles: { name: string; color: string } | null
 }
 
@@ -109,6 +115,35 @@ function PlannerCell({
   )
 }
 
+// Draggable employee chip
+function DraggableEmployee({ emp }: { emp: Employee }) {
+  const primary = emp.employee_roles.find((r) => r.is_primary) ?? emp.employee_roles[0]
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `emp::${emp.id}`,
+    data: { type: 'employee', employeeId: emp.id },
+  })
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={cn(
+        'flex items-center gap-2 px-3 py-2 bg-white border rounded-lg text-sm cursor-grab select-none shadow-sm whitespace-nowrap transition-opacity',
+        isDragging && 'opacity-40'
+      )}
+    >
+      {primary?.roles && (
+        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: primary.roles.color }} />
+      )}
+      <span className="font-medium">{emp.first_name} {emp.last_name}</span>
+      {primary?.roles && (
+        <span className="text-xs text-gray-400">{primary.roles.name}</span>
+      )}
+    </div>
+  )
+}
+
 export function ShiftPlanner({
   weekStart,
   weekDates,
@@ -121,11 +156,17 @@ export function ShiftPlanner({
   canEdit,
 }: ShiftPlannerProps) {
   const { toast } = useToast()
+  const router = useRouter()
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [publishOpen, setPublishOpen] = React.useState(false)
+  const [copyOpen, setCopyOpen] = React.useState(false)
+  const [targetDate, setTargetDate] = React.useState('')
+  const [copying, setCopying] = React.useState(false)
   const [selectedCell, setSelectedCell] = React.useState<{ slotId: string; date: string } | null>(null)
   const [editShiftId, setEditShiftId] = React.useState<string | undefined>()
+  const [prefillEmployeeId, setPrefillEmployeeId] = React.useState<string | undefined>()
   const [activeShift, setActiveShift] = React.useState<ShiftData | null>(null)
+  const [activeEmployee, setActiveEmployee] = React.useState<Employee | null>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -142,7 +183,7 @@ export function ShiftPlanner({
     return map
   }, [shifts])
 
-  // Coverage per cell
+  // Coverage per cell, filtered by day of week
   const coverageMap = React.useMemo(() => {
     const map: Record<string, Array<{ role_id: string; role_name: string; min_count: number; ideal_count: number; assigned_count: number }>> = {}
     for (const ts of timeSlots) {
@@ -150,7 +191,12 @@ export function ShiftPlanner({
         const dateStr = date.toISOString().split('T')[0]
         const key = `${ts.id}::${dateStr}`
         const cellShifts = shiftMap[key] ?? []
-        const reqs = serviceRequirements.filter((r) => r.time_slot_id === ts.id)
+        const dayOfWeek = date.getDay()
+        const reqs = serviceRequirements.filter((r) => {
+          if (r.time_slot_id !== ts.id) return false
+          const days = r.days_of_week ?? [0, 1, 2, 3, 4, 5, 6]
+          return days.length === 0 || days.includes(dayOfWeek)
+        })
         map[key] = reqs.map((req) => ({
           role_id: req.role_id,
           role_name: req.roles?.name ?? '?',
@@ -163,24 +209,40 @@ export function ShiftPlanner({
     return map
   }, [shiftMap, timeSlots, weekDates, serviceRequirements])
 
-  function openAddDialog(slotId: string, date: string) {
+  function openAddDialog(slotId: string, date: string, employeeId?: string) {
     if (!canEdit) return
     setSelectedCell({ slotId, date })
     setEditShiftId(undefined)
+    setPrefillEmployeeId(employeeId)
     setDialogOpen(true)
   }
 
   function openEditDialog(shiftId: string, slotId: string, date: string) {
     setSelectedCell({ slotId, date })
     setEditShiftId(shiftId)
+    setPrefillEmployeeId(undefined)
     setDialogOpen(true)
   }
 
   async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event
     setActiveShift(null)
-    if (!over || active.id === over.id) return
+    setActiveEmployee(null)
+    if (!over) return
 
+    const activeData = active.data.current as { type?: string; employeeId?: string } | undefined
+
+    if (activeData?.type === 'employee') {
+      // Employee dropped onto a cell → open dialog pre-filled
+      const cellId = String(over.id)
+      if (!cellId.includes('::')) return
+      const [newSlotId, newDate] = cellId.split('::')
+      openAddDialog(newSlotId, newDate, activeData.employeeId)
+      return
+    }
+
+    // Shift drag
+    if (active.id === over.id) return
     const [newSlotId, newDate] = String(over.id).split('::')
     const shift = shifts.find((s) => s.id === active.id)
     if (!shift || (shift.time_slot_id === newSlotId && shift.date === newDate)) return
@@ -191,6 +253,22 @@ export function ShiftPlanner({
     })
     if (result.error) {
       toast({ title: 'Errore nello spostamento', description: result.error, variant: 'destructive' })
+    }
+  }
+
+  async function handleCopyWeek() {
+    if (!targetDate) return
+    setCopying(true)
+    const targetWeekStart = getWeekStart(new Date(targetDate + 'T12:00:00')).toISOString().split('T')[0]
+    const result = await copyWeekSchedule(scheduleId, targetWeekStart)
+    setCopying(false)
+    if (result.error) {
+      toast({ title: 'Errore', description: result.error, variant: 'destructive' })
+    } else {
+      toast({ title: 'Settimana copiata!', description: `Turni copiati nella settimana del ${targetWeekStart}` })
+      setCopyOpen(false)
+      setTargetDate('')
+      router.push(`/dashboard/turni?week=${targetWeekStart}`)
     }
   }
 
@@ -205,6 +283,12 @@ export function ShiftPlanner({
           <Badge variant={scheduleStatus === 'published' ? 'success' : scheduleStatus === 'archived' ? 'secondary' : 'warning'}>
             {scheduleStatus === 'draft' ? 'Bozza' : scheduleStatus === 'published' ? 'Pubblicato' : 'Archiviato'}
           </Badge>
+          {canEdit && (
+            <Button variant="outline" size="sm" onClick={() => setCopyOpen(true)}>
+              <Copy className="w-4 h-4 mr-2" />
+              Copia settimana
+            </Button>
+          )}
           {canEdit && scheduleStatus !== 'archived' && (
             <Button
               size="sm"
@@ -222,8 +306,12 @@ export function ShiftPlanner({
       <DndContext
         sensors={sensors}
         onDragStart={(e) => {
-          const shift = shifts.find((s) => s.id === e.active.id)
-          setActiveShift(shift ?? null)
+          const data = e.active.data.current as { type?: string; employeeId?: string } | undefined
+          if (data?.type === 'employee') {
+            setActiveEmployee(employees.find((emp) => emp.id === data.employeeId) ?? null)
+          } else {
+            setActiveShift(shifts.find((s) => s.id === e.active.id) ?? null)
+          }
         }}
         onDragEnd={handleDragEnd}
       >
@@ -277,14 +365,12 @@ export function ShiftPlanner({
                       onClick={() => openAddDialog(slot.id, dateStr)}
                       canEdit={canEdit}
                     >
-                      {/* Coverage dot */}
                       {coverage.length > 0 && (
                         <div className="flex justify-end mb-0.5">
                           <CoverageIndicator requirements={coverage} />
                         </div>
                       )}
 
-                      {/* Shift cards */}
                       {cellShifts.map((shift) => (
                         <ShiftCard
                           key={shift.id}
@@ -302,7 +388,6 @@ export function ShiftPlanner({
                         />
                       ))}
 
-                      {/* Add button */}
                       {canEdit && cellShifts.length === 0 && (
                         <button
                           type="button"
@@ -335,8 +420,31 @@ export function ShiftPlanner({
                 : '?'}
             </div>
           )}
+          {activeEmployee && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-white border rounded-lg text-sm shadow-lg">
+              {(() => {
+                const p = activeEmployee.employee_roles.find((r) => r.is_primary) ?? activeEmployee.employee_roles[0]
+                return p?.roles ? <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.roles.color }} /> : null
+              })()}
+              <span className="font-medium">{activeEmployee.first_name} {activeEmployee.last_name}</span>
+            </div>
+          )}
         </DragOverlay>
       </DndContext>
+
+      {/* Employee DnD panel */}
+      {canEdit && employees.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+            Dipendenti — trascina sulla cella per assegnare rapidamente
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            {employees.map((emp) => (
+              <DraggableEmployee key={emp.id} emp={emp} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Shift dialog */}
       {selectedCell && (
@@ -349,6 +457,7 @@ export function ShiftPlanner({
           employees={employees}
           timeSlots={timeSlots}
           editShiftId={editShiftId}
+          initialEmployeeId={prefillEmployeeId}
         />
       )}
 
@@ -360,6 +469,34 @@ export function ShiftPlanner({
         shiftCount={shifts.filter((s) => s.status === 'draft').length}
         employeeCount={uniqueEmployees.length}
       />
+
+      {/* Copy week dialog */}
+      <Dialog open={copyOpen} onOpenChange={setCopyOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Copia settimana</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-500">
+              Seleziona una data nella settimana di destinazione. I turni esistenti in bozza verranno sostituiti.
+            </p>
+            <div className="space-y-1">
+              <Label>Data nella settimana di destinazione</Label>
+              <Input
+                type="date"
+                value={targetDate}
+                onChange={(e) => setTargetDate(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCopyOpen(false)}>Annulla</Button>
+            <Button onClick={handleCopyWeek} disabled={!targetDate || copying}>
+              {copying ? 'Copia in corso...' : 'Copia'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

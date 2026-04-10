@@ -93,7 +93,7 @@ export default async function TurniPage({
       .order('last_name'),
     supabase
       .from('service_requirements')
-      .select('time_slot_id, role_id, min_count, ideal_count, roles(name, color)'),
+      .select('time_slot_id, role_id, min_count, ideal_count, days_of_week, roles(name, color)'),
   ])
 
   const canEdit = role === 'admin' || role === 'manager'

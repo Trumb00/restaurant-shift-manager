@@ -12,7 +12,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import { createShift, deleteShift, validateShiftConstraints } from '@/app/actions/shifts'
 import { useToast } from '@/hooks/use-toast'
-import { AlertCircle, Trash2, Link2 } from 'lucide-react'
+import { AlertCircle, Trash2, Link2, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Employee {
@@ -42,11 +42,13 @@ interface ShiftDialogProps {
   employees: Employee[]
   timeSlots: TimeSlot[]
   editShiftId?: string
+  initialEmployeeId?: string
   onSuccess?: () => void
 }
 
 export function ShiftDialog({
-  open, onOpenChange, scheduleId, date, timeSlotId, employees, timeSlots, editShiftId, onSuccess,
+  open, onOpenChange, scheduleId, date, timeSlotId, employees, timeSlots,
+  editShiftId, initialEmployeeId, onSuccess,
 }: ShiftDialogProps) {
   const { toast } = useToast()
   const [employeeId, setEmployeeId] = React.useState('')
@@ -54,6 +56,9 @@ export function ShiftDialog({
   const [slotId, setSlotId] = React.useState(timeSlotId)
   const [notes, setNotes] = React.useState('')
   const [isSplit, setIsSplit] = React.useState(false)
+  const [customHours, setCustomHours] = React.useState(false)
+  const [customStart, setCustomStart] = React.useState('')
+  const [customEnd, setCustomEnd] = React.useState('')
   const [loading, setLoading] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
   const [errors, setErrors] = React.useState<string[]>([])
@@ -61,15 +66,29 @@ export function ShiftDialog({
 
   React.useEffect(() => {
     if (open) {
-      setEmployeeId('')
+      setEmployeeId(initialEmployeeId ?? '')
       setRoleId('')
       setSlotId(timeSlotId)
       setNotes('')
       setIsSplit(false)
+      setCustomHours(false)
+      setCustomStart('')
+      setCustomEnd('')
       setErrors([])
       setWarnings([])
     }
-  }, [open, timeSlotId])
+  }, [open, timeSlotId, initialEmployeeId])
+
+  // Auto-populate custom time defaults from slot when toggled on
+  React.useEffect(() => {
+    if (customHours && slotId) {
+      const slot = timeSlots.find((ts) => ts.id === slotId)
+      if (slot) {
+        if (!customStart) setCustomStart(slot.start_time.slice(0, 5))
+        if (!customEnd) setCustomEnd(slot.end_time.slice(0, 5))
+      }
+    }
+  }, [customHours, slotId, timeSlots, customStart, customEnd])
 
   // Get available roles for selected employee
   const selectedEmployee = employees.find((e) => e.id === employeeId)
@@ -90,6 +109,8 @@ export function ShiftDialog({
       time_slot_id: slotId,
       role_id: roleId,
       date,
+      custom_start: customHours && customStart ? customStart : null,
+      custom_end: customHours && customEnd ? customEnd : null,
     })
     setErrors(result.errors)
     setWarnings(result.warnings)
@@ -100,7 +121,7 @@ export function ShiftDialog({
       handleValidate()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [employeeId, roleId, slotId])
+  }, [employeeId, roleId, slotId, customStart, customEnd, customHours])
 
   async function handleSave() {
     if (!employeeId || !roleId || !slotId) {
@@ -118,6 +139,8 @@ export function ShiftDialog({
       time_slot_id: slotId,
       role_id: roleId,
       date,
+      custom_start: customHours && customStart ? customStart : null,
+      custom_end: customHours && customEnd ? customEnd : null,
       notes,
       is_split_shift: isSplit,
     })
@@ -144,6 +167,8 @@ export function ShiftDialog({
       onOpenChange(false)
     }
   }
+
+  const currentSlot = timeSlots.find((ts) => ts.id === slotId)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -178,7 +203,7 @@ export function ShiftDialog({
           {/* Fascia oraria */}
           <div className="space-y-1">
             <Label>Fascia oraria</Label>
-            <Select value={slotId} onValueChange={setSlotId}>
+            <Select value={slotId} onValueChange={(v) => { setSlotId(v); setCustomStart(''); setCustomEnd('') }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -190,6 +215,48 @@ export function ShiftDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Orario personalizzato */}
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setCustomHours(!customHours)}
+              className={cn(
+                'flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border transition-colors',
+                customHours
+                  ? 'bg-blue-50 border-blue-300 text-blue-700'
+                  : 'border-gray-200 text-gray-500 hover:border-gray-300'
+              )}
+            >
+              <Clock className="w-4 h-4" />
+              Orario personalizzato
+              {customHours && currentSlot && (
+                <span className="text-xs text-gray-400 ml-1">
+                  (default: {currentSlot.start_time.slice(0, 5)}–{currentSlot.end_time.slice(0, 5)})
+                </span>
+              )}
+            </button>
+            {customHours && (
+              <div className="grid grid-cols-2 gap-3 pl-1">
+                <div className="space-y-1">
+                  <Label className="text-xs">Inizio</Label>
+                  <Input
+                    type="time"
+                    value={customStart}
+                    onChange={(e) => setCustomStart(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Fine</Label>
+                  <Input
+                    type="time"
+                    value={customEnd}
+                    onChange={(e) => setCustomEnd(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Dipendente */}

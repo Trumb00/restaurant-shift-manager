@@ -13,6 +13,8 @@ export interface ShiftInput {
   time_slot_id: string
   role_id: string
   date: string
+  custom_start?: string | null  // HH:MM — sovrascrive l'orario della fascia
+  custom_end?: string | null    // HH:MM — sovrascrive l'orario della fascia
   actual_start?: string | null
   actual_end?: string | null
   is_split_shift?: boolean
@@ -43,13 +45,14 @@ export async function validateShiftConstraints(data: ShiftInput): Promise<Valida
   }
 
   const shiftDate = data.date
-  const slotStart = `${shiftDate}T${slot.start_time}`
-  const slotEnd = `${shiftDate}T${slot.end_time}`
-  const startMs = new Date(slotStart).getTime()
-  const endMs = new Date(slotEnd).getTime()
+  // Use custom times if provided, otherwise fall back to slot times
+  const startTimeStr = data.custom_start ?? slot.start_time.slice(0, 5)
+  const endTimeStr = data.custom_end ?? slot.end_time.slice(0, 5)
+  const startMs = new Date(`${shiftDate}T${startTimeStr}`).getTime()
+  const endMs = new Date(`${shiftDate}T${endTimeStr}`).getTime()
   const shiftHours = (endMs - startMs) / (1000 * 60 * 60)
 
-  // 1. No assignment during approved vacations
+  // 1. No assignment during approved vacations (hard error — cannot override)
   const { data: vacation } = await supabase
     .from('vacations')
     .select('id')
@@ -63,7 +66,7 @@ export async function validateShiftConstraints(data: ShiftInput): Promise<Valida
     errors.push('Il dipendente ha una ferie/permesso approvata in questa data.')
   }
 
-  // 2. Max daily hours (12h)
+  // 2. Max daily hours (12h) — soft warning, can override
   const { data: dayShifts } = await supabase
     .from('shifts')
     .select('time_slot_id, actual_start, actual_end, time_slots(start_time, end_time)')
@@ -82,31 +85,41 @@ export async function validateShiftConstraints(data: ShiftInput): Promise<Valida
     }
   }
   if (dailyHours > 12) {
-    errors.push(`Ore giornaliere eccedute: ${dailyHours.toFixed(1)}h (max 12h).`)
+    warnings.push(`Ore giornaliere elevate: ${dailyHours.toFixed(1)}h (soglia 12h). Puoi procedere.`)
   }
 
-  // 3. Minimum rest between shifts (11h)
-  const { data: prevShifts } = await supabase
+  // 3. Minimum rest between shifts (11h) — soft warning, bidirectional check
+  const twoDaysMs = 2 * 86400000
+  const { data: nearbyShifts } = await supabase
     .from('shifts')
-    .select('time_slots(start_time, end_time), date')
+    .select('time_slots(start_time, end_time), actual_start, actual_end, date')
     .eq('employee_id', data.employee_id)
     .neq('status', 'cancelled')
-    .gte('date', new Date(new Date(shiftDate).getTime() - 2 * 86400000).toISOString().split('T')[0])
-    .lte('date', shiftDate)
+    .gte('date', new Date(new Date(shiftDate).getTime() - twoDaysMs).toISOString().split('T')[0])
+    .lte('date', new Date(new Date(shiftDate).getTime() + twoDaysMs).toISOString().split('T')[0])
 
-  if (prevShifts) {
-    for (const s of prevShifts) {
+  if (nearbyShifts) {
+    for (const s of nearbyShifts) {
       const ts = Array.isArray(s.time_slots) ? s.time_slots[0] : s.time_slots
       if (!ts) continue
+      const prevStart = new Date(`${s.date}T${ts.start_time}`).getTime()
       const prevEnd = new Date(`${s.date}T${ts.end_time}`).getTime()
-      const restHours = (startMs - prevEnd) / (1000 * 60 * 60)
-      if (restHours > 0 && restHours < 11) {
-        errors.push(`Riposo insufficiente: solo ${restHours.toFixed(1)}h prima di questo turno (minimo 11h).`)
+
+      // Gap: existing shift ends, new shift starts
+      const gapBefore = startMs - prevEnd
+      if (gapBefore > 0 && gapBefore < 11 * 3600000) {
+        warnings.push(`Riposo insufficiente: solo ${(gapBefore / 3600000).toFixed(1)}h prima di questo turno (minimo 11h). Puoi procedere.`)
+      }
+
+      // Gap: new shift ends, existing shift starts
+      const gapAfter = prevStart - endMs
+      if (gapAfter > 0 && gapAfter < 11 * 3600000) {
+        warnings.push(`Riposo insufficiente: solo ${(gapAfter / 3600000).toFixed(1)}h dopo questo turno (minimo 11h). Puoi procedere.`)
       }
     }
   }
 
-  // 4. Max weekly hours (contract * 1.25)
+  // 4. Max weekly hours (contract * 1.25) — soft warning
   const weekStart = new Date(shiftDate)
   weekStart.setUTCHours(0, 0, 0, 0)
   const day = weekStart.getUTCDay()
@@ -116,7 +129,8 @@ export async function validateShiftConstraints(data: ShiftInput): Promise<Valida
 
   const { data: employee } = await supabase
     .from('employees')
-    .select('weekly_hours_contract')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .select('weekly_hours_contract, preferred_rest_days' as any)
     .eq('id', data.employee_id)
     .single()
 
@@ -141,11 +155,19 @@ export async function validateShiftConstraints(data: ShiftInput): Promise<Valida
     }
     const maxWeekly = employee.weekly_hours_contract * 1.25
     if (weeklyHours > maxWeekly) {
-      errors.push(`Ore settimanali eccedute: ${weeklyHours.toFixed(1)}h (max ${maxWeekly.toFixed(1)}h).`)
+      warnings.push(`Ore settimanali elevate: ${weeklyHours.toFixed(1)}h (soglia ${maxWeekly.toFixed(1)}h). Puoi procedere.`)
     }
   }
 
-  // 5. Incompatibilities
+  // 5. Preferred rest days — soft warning
+  const restDays = (employee as unknown as { preferred_rest_days?: number[] })?.preferred_rest_days ?? []
+  const shiftDayOfWeek = new Date(shiftDate).getUTCDay()
+  if (restDays.includes(shiftDayOfWeek)) {
+    const dayNames = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab']
+    warnings.push(`${dayNames[shiftDayOfWeek]} è un giorno di riposo preferito da questo dipendente.`)
+  }
+
+  // 6. Incompatibilities (hard error)
   const { data: incompat } = await supabase
     .from('incompatibilities')
     .select('employee_a_id, employee_b_id')
@@ -174,7 +196,7 @@ export async function validateShiftConstraints(data: ShiftInput): Promise<Valida
 
   // SOFT WARNINGS
 
-  // 6. Availability preference
+  // 7. Availability preference
   const dayOfWeek = new Date(shiftDate).getUTCDay()
   const { data: avail } = await supabase
     .from('availabilities')
@@ -190,7 +212,7 @@ export async function validateShiftConstraints(data: ShiftInput): Promise<Valida
     warnings.push(`Il dipendente preferisce non lavorare in ${slot.name} (fascia non preferita).`)
   }
 
-  // 7. Using secondary role
+  // 8. Using secondary role
   const { data: empRole } = await supabase
     .from('employee_roles')
     .select('is_primary')
@@ -221,8 +243,8 @@ export async function createShift(data: ShiftInput): Promise<{ id: string } | { 
       time_slot_id: data.time_slot_id,
       role_id: data.role_id,
       date: data.date,
-      actual_start: data.actual_start,
-      actual_end: data.actual_end,
+      actual_start: data.custom_start ? `${data.date}T${data.custom_start}:00` : (data.actual_start ?? null),
+      actual_end: data.custom_end ? `${data.date}T${data.custom_end}:00` : (data.actual_end ?? null),
       is_split_shift: data.is_split_shift ?? false,
       split_group_id: data.split_group_id,
       notes: data.notes,
@@ -291,14 +313,12 @@ export async function publishSchedule(scheduleId: string, sendEmail: boolean): P
   const supabase = await createClient()
   const { data: { session } } = await supabase.auth.getSession()
 
-  // Get current employee
   const { data: employee } = await supabase
     .from('employees')
     .select('id')
     .eq('user_id', session?.user.id ?? '')
     .single()
 
-  // Update all draft shifts to published
   const { error: shiftError } = await supabase
     .from('shifts')
     .update({ status: 'published' })
@@ -307,7 +327,6 @@ export async function publishSchedule(scheduleId: string, sendEmail: boolean): P
 
   if (shiftError) return { error: shiftError.message }
 
-  // Update schedule status
   const { error: schedError } = await supabase
     .from('schedules')
     .update({
@@ -319,7 +338,6 @@ export async function publishSchedule(scheduleId: string, sendEmail: boolean): P
 
   if (schedError) return { error: schedError.message }
 
-  // Create notification records for each affected employee
   if (sendEmail) {
     const { data: shifts } = await supabase
       .from('shifts')
@@ -352,4 +370,99 @@ export async function publishSchedule(scheduleId: string, sendEmail: boolean): P
 
   revalidatePath('/dashboard/turni')
   return {}
+}
+
+export async function copyWeekSchedule(
+  sourceScheduleId: string,
+  targetWeekStart: string,
+): Promise<{ scheduleId?: string; error?: string }> {
+  const supabase = await createClient()
+  const { data: { session } } = await supabase.auth.getSession()
+
+  const { data: employee } = await supabase
+    .from('employees')
+    .select('id')
+    .eq('user_id', session?.user.id ?? '')
+    .single()
+
+  // Compute target week end
+  const targetStart = new Date(targetWeekStart)
+  const targetEnd = new Date(targetStart)
+  targetEnd.setUTCDate(targetStart.getUTCDate() + 6)
+  const targetEndStr = targetEnd.toISOString().split('T')[0]
+
+  // Get or create target schedule
+  let { data: targetSchedule } = await supabase
+    .from('schedules')
+    .select('id, week_start')
+    .eq('week_start', targetWeekStart)
+    .maybeSingle()
+
+  if (!targetSchedule) {
+    const { data: newSchedule, error } = await supabase
+      .from('schedules')
+      .insert({
+        week_start: targetWeekStart,
+        week_end: targetEndStr,
+        status: 'draft',
+        created_by: employee?.id,
+      })
+      .select()
+      .single()
+    if (error) return { error: error.message }
+    targetSchedule = newSchedule
+  }
+
+  if (!targetSchedule) return { error: 'Impossibile creare lo schedule.' }
+
+  // Fetch source shifts
+  const { data: sourceShifts } = await supabase
+    .from('shifts')
+    .select('employee_id, time_slot_id, role_id, date, is_split_shift, notes')
+    .eq('schedule_id', sourceScheduleId)
+    .neq('status', 'cancelled')
+
+  if (!sourceShifts || sourceShifts.length === 0) {
+    return { scheduleId: targetSchedule.id }
+  }
+
+  // Get source schedule week start to compute date offset
+  const { data: sourceSchedule } = await supabase
+    .from('schedules')
+    .select('week_start')
+    .eq('id', sourceScheduleId)
+    .single()
+
+  if (!sourceSchedule) return { error: 'Schedule sorgente non trovato.' }
+
+  const sourceStart = new Date(sourceSchedule.week_start)
+  const msOffset = targetStart.getTime() - sourceStart.getTime()
+
+  // Delete existing shifts in target week before copying
+  await supabase
+    .from('shifts')
+    .delete()
+    .eq('schedule_id', targetSchedule.id)
+    .eq('status', 'draft')
+
+  // Insert copies with shifted dates
+  const newShifts = sourceShifts.map((s) => {
+    const newDate = new Date(new Date(s.date).getTime() + msOffset)
+    return {
+      schedule_id: targetSchedule!.id,
+      employee_id: s.employee_id,
+      time_slot_id: s.time_slot_id,
+      role_id: s.role_id,
+      date: newDate.toISOString().split('T')[0],
+      is_split_shift: s.is_split_shift ?? false,
+      notes: s.notes,
+      status: 'draft' as const,
+    }
+  })
+
+  const { error } = await supabase.from('shifts').insert(newShifts)
+  if (error) return { error: error.message }
+
+  revalidatePath('/dashboard/turni')
+  return { scheduleId: targetSchedule.id }
 }

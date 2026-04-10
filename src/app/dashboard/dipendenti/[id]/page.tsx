@@ -79,6 +79,7 @@ export default async function DipendentePage({ params }: { params: Promise<{ id:
     weekly_hours_contract: emp.weekly_hours_contract ?? 40,
     hire_date: emp.hire_date ?? '',
     app_role: emp.app_role,
+    preferred_rest_days: (emp as unknown as { preferred_rest_days?: number[] }).preferred_rest_days ?? [],
     roles: empRoles.map((r) => ({
       role_id: r.role_id,
       is_primary: r.is_primary,
