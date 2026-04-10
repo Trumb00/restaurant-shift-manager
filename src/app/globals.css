@@ -1,0 +1,149 @@
+@import "tailwindcss";
+
+/* ── Design system CSS variables ────────────────────────────────────────── */
+:root {
+  /* Background / surface */
+  --background: #f8fafc;       /* slate-50 */
+  --foreground: #0f172a;       /* slate-900 */
+  --surface:    #ffffff;
+  --surface-alt: #f1f5f9;     /* slate-100 */
+
+  /* Primary – Indigo */
+  --primary:          #4f46e5; /* indigo-600 */
+  --primary-hover:    #4338ca; /* indigo-700 */
+  --primary-light:    #e0e7ff; /* indigo-100 */
+  --primary-fg:       #ffffff;
+
+  /* Secondary – Slate */
+  --secondary:        #64748b; /* slate-500 */
+  --secondary-hover:  #475569; /* slate-600 */
+  --secondary-light:  #e2e8f0; /* slate-200 */
+  --secondary-fg:     #ffffff;
+
+  /* Destructive */
+  --destructive:      #dc2626; /* red-600 */
+  --destructive-hover:#b91c1c; /* red-700 */
+  --destructive-light:#fee2e2; /* red-100 */
+  --destructive-fg:   #ffffff;
+
+  /* Success */
+  --success:          #16a34a; /* green-600 */
+  --success-light:    #dcfce7; /* green-100 */
+  --success-fg:       #ffffff;
+
+  /* Warning */
+  --warning:          #d97706; /* amber-600 */
+  --warning-light:    #fef3c7; /* amber-100 */
+  --warning-fg:       #ffffff;
+
+  /* Borders / muted */
+  --border:           #e2e8f0; /* slate-200 */
+  --border-strong:    #cbd5e1; /* slate-300 */
+  --muted:            #94a3b8; /* slate-400 */
+  --muted-fg:         #64748b; /* slate-500 */
+
+  /* Sidebar */
+  --sidebar-bg:       #1e293b; /* slate-800 */
+  --sidebar-fg:       #f1f5f9; /* slate-100 */
+  --sidebar-active:   #4f46e5; /* indigo-600 */
+  --sidebar-hover:    #334155; /* slate-700 */
+  --sidebar-border:   #334155; /* slate-700 */
+
+  /* Header */
+  --header-bg:        #ffffff;
+  --header-border:    #e2e8f0;
+
+  /* Ring / focus */
+  --ring:             #4f46e5;
+  --ring-offset:      #ffffff;
+
+  /* Radius */
+  --radius:           0.5rem;
+  --radius-sm:        0.25rem;
+  --radius-lg:        0.75rem;
+  --radius-xl:        1rem;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow:    0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+
+/* ── Dark mode overrides ─────────────────────────────────────────────────── */
+.dark {
+  --background:    #0f172a;   /* slate-900 */
+  --foreground:    #f1f5f9;   /* slate-100 */
+  --surface:       #1e293b;   /* slate-800 */
+  --surface-alt:   #334155;   /* slate-700 */
+
+  --primary:       #6366f1;   /* indigo-500 */
+  --primary-hover: #4f46e5;   /* indigo-600 */
+  --primary-light: #1e1b4b;   /* indigo-950 */
+
+  --secondary:      #94a3b8;  /* slate-400 */
+  --secondary-light:#1e293b;  /* slate-800 */
+
+  --border:        #334155;   /* slate-700 */
+  --border-strong: #475569;   /* slate-600 */
+  --muted:         #64748b;   /* slate-500 */
+  --muted-fg:      #94a3b8;   /* slate-400 */
+
+  --sidebar-bg:    #0f172a;   /* slate-900 */
+  --sidebar-hover: #1e293b;   /* slate-800 */
+  --sidebar-border:#1e293b;
+
+  --header-bg:     #1e293b;
+  --header-border: #334155;
+
+  --ring-offset:   #0f172a;
+  --surface:       #1e293b;
+}
+
+/* ── Tailwind theme bridge ───────────────────────────────────────────────── */
+@theme inline {
+  --color-background:   var(--background);
+  --color-foreground:   var(--foreground);
+  --color-surface:      var(--surface);
+  --color-surface-alt:  var(--surface-alt);
+  --color-primary:      var(--primary);
+  --color-primary-fg:   var(--primary-fg);
+  --color-border:       var(--border);
+  --color-muted:        var(--muted);
+  --color-muted-fg:     var(--muted-fg);
+  --color-sidebar-bg:   var(--sidebar-bg);
+  --color-sidebar-fg:   var(--sidebar-fg);
+  --font-sans:          var(--font-inter);
+}
+
+/* ── Base resets ─────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  border-color: var(--border);
+}
+
+html {
+  height: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  height: 100%;
+  background-color: var(--background);
+  color: var(--foreground);
+  line-height: 1.5;
+}
+
+/* Remove default button styles */
+button {
+  cursor: pointer;
+}
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
