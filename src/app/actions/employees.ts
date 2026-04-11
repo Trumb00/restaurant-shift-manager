@@ -111,21 +111,22 @@ export async function addIncompatibility(
 ): Promise<{ error?: string }> {
   const supabase = await createClient()
 
-  // Avoid duplicates (either direction)
+  // The table enforces employee_a_id < employee_b_id — always insert in sorted order
+  const [a, b] = [employeeAId, employeeBId].sort()
+
+  // Avoid duplicates
   const { data: existing } = await supabase
     .from('incompatibilities')
     .select('id')
-    .or(
-      `and(employee_a_id.eq.${employeeAId},employee_b_id.eq.${employeeBId}),` +
-      `and(employee_a_id.eq.${employeeBId},employee_b_id.eq.${employeeAId})`
-    )
+    .eq('employee_a_id', a)
+    .eq('employee_b_id', b)
     .maybeSingle()
 
   if (existing) return {}
 
   const { error } = await supabase
     .from('incompatibilities')
-    .insert({ employee_a_id: employeeAId, employee_b_id: employeeBId })
+    .insert({ employee_a_id: a, employee_b_id: b })
 
   if (error) return { error: error.message }
 
