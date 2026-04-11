@@ -104,3 +104,53 @@ export async function toggleEmployeeActive(id: string, is_active: boolean): Prom
   revalidatePath(`/dashboard/dipendenti/${id}`)
   return {}
 }
+
+export async function addIncompatibility(
+  employeeAId: string,
+  employeeBId: string,
+): Promise<{ error?: string }> {
+  const supabase = await createClient()
+
+  // Avoid duplicates (either direction)
+  const { data: existing } = await supabase
+    .from('incompatibilities')
+    .select('id')
+    .or(
+      `and(employee_a_id.eq.${employeeAId},employee_b_id.eq.${employeeBId}),` +
+      `and(employee_a_id.eq.${employeeBId},employee_b_id.eq.${employeeAId})`
+    )
+    .maybeSingle()
+
+  if (existing) return {}
+
+  const { error } = await supabase
+    .from('incompatibilities')
+    .insert({ employee_a_id: employeeAId, employee_b_id: employeeBId })
+
+  if (error) return { error: error.message }
+
+  revalidatePath(`/dashboard/dipendenti/${employeeAId}`)
+  revalidatePath(`/dashboard/dipendenti/${employeeBId}`)
+  return {}
+}
+
+export async function removeIncompatibility(
+  employeeAId: string,
+  employeeBId: string,
+): Promise<{ error?: string }> {
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('incompatibilities')
+    .delete()
+    .or(
+      `and(employee_a_id.eq.${employeeAId},employee_b_id.eq.${employeeBId}),` +
+      `and(employee_a_id.eq.${employeeBId},employee_b_id.eq.${employeeAId})`
+    )
+
+  if (error) return { error: error.message }
+
+  revalidatePath(`/dashboard/dipendenti/${employeeAId}`)
+  revalidatePath(`/dashboard/dipendenti/${employeeBId}`)
+  return {}
+}

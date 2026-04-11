@@ -6,8 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { EmployeeDialog } from '@/components/employees/EmployeeDialog'
 import { ToggleActiveButton } from '@/components/employees/ToggleActiveButton'
+import { IncompatibilityManager } from '@/components/employees/IncompatibilityManager'
 import { formatDate, formatTime } from '@/lib/utils'
-import { ArrowLeft, Mail, Phone, Calendar, Clock, Briefcase } from 'lucide-react'
+import { ArrowLeft, Mail, Phone, Calendar, Clock, Briefcase, UserX } from 'lucide-react'
 
 const CONTRACT_LABELS: Record<string, string> = {
   full_time: 'Full-time',
@@ -37,7 +38,7 @@ export default async function DipendentePage({ params }: { params: Promise<{ id:
   const viewerRole = currentEmployee?.app_role ?? 'employee'
   if (viewerRole === 'employee') redirect('/dashboard')
 
-  const [{ data: emp }, { data: roles }] = await Promise.all([
+  const [{ data: emp }, { data: roles }, { data: incompatRows }, { data: allEmployees }] = await Promise.all([
     supabase
       .from('employees')
       .select(`
@@ -47,9 +48,23 @@ export default async function DipendentePage({ params }: { params: Promise<{ id:
       .eq('id', id)
       .single(),
     supabase.from('roles').select('id, name, color').eq('is_active', true),
+    supabase
+      .from('incompatibilities')
+      .select('employee_a_id, employee_b_id')
+      .or(`employee_a_id.eq.${id},employee_b_id.eq.${id}`),
+    supabase
+      .from('employees')
+      .select('id, first_name, last_name')
+      .eq('is_active', true)
+      .neq('id', id)
+      .order('last_name'),
   ])
 
   if (!emp) notFound()
+
+  const incompatibleIds = (incompatRows ?? []).map((row) =>
+    row.employee_a_id === id ? row.employee_b_id! : row.employee_a_id!
+  )
 
   // Last 30 days shifts
   const thirtyDaysAgo = new Date()
@@ -196,6 +211,23 @@ export default async function DipendentePage({ params }: { params: Promise<{ id:
           </CardContent>
         </Card>
       </div>
+
+      {/* Recent shifts */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <UserX className="w-4 h-4 text-red-400" />
+            Colleghi incompatibili
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <IncompatibilityManager
+            employeeId={id}
+            allEmployees={allEmployees ?? []}
+            initialIncompatibleIds={incompatibleIds}
+          />
+        </CardContent>
+      </Card>
 
       {/* Recent shifts */}
       <Card>

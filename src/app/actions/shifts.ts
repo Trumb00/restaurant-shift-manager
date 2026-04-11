@@ -182,7 +182,7 @@ export async function validateShiftConstraints(data: ShiftInput): Promise<Valida
     warnings.push(`${dayNames[shiftDayOfWeek]} è un giorno di riposo preferito da questo dipendente.`)
   }
 
-  // 6. Incompatibilities (hard error)
+  // 6. Incompatibilities — soft warning (requires confirmation)
   const { data: incompat } = await supabase
     .from('incompatibilities')
     .select('employee_a_id, employee_b_id')
@@ -190,7 +190,7 @@ export async function validateShiftConstraints(data: ShiftInput): Promise<Valida
   if (incompat && incompat.length > 0) {
     const { data: sameSlotShifts } = await supabase
       .from('shifts')
-      .select('employee_id')
+      .select('employee_id, employees(first_name, last_name)')
       .eq('date', shiftDate)
       .eq('time_slot_id', data.time_slot_id)
       .neq('status', 'cancelled')
@@ -203,7 +203,9 @@ export async function validateShiftConstraints(data: ShiftInput): Promise<Valida
             (i.employee_b_id === data.employee_id && i.employee_a_id === other.employee_id)
         )
         if (conflict) {
-          errors.push('Incompatibilità: questo dipendente non può lavorare con un altro già assegnato a questo turno.')
+          const emp = Array.isArray(other.employees) ? other.employees[0] : other.employees
+          const name = emp ? `${emp.first_name} ${emp.last_name}` : 'un collega'
+          warnings.push(`Incompatibilità con ${name} già assegnato in questa fascia.`)
         }
       }
     }
