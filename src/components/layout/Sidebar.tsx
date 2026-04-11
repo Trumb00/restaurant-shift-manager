@@ -48,6 +48,11 @@ export function Sidebar({ userName, userEmail, userRole, avatarUrl, isOpen, onCl
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
+  // Defer active-state calculation to the client to avoid hydration
+  // mismatches after magic-link redirects (server and client can
+  // disagree on pathname during the initial render).
+  const [mounted, setMounted] = React.useState(false)
+  React.useEffect(() => { setMounted(true) }, [])
 
   const visibleItems = navItems.filter(
     (item) => !item.roles || item.roles.includes(userRole)
@@ -114,10 +119,11 @@ export function Sidebar({ userName, userEmail, userRole, avatarUrl, isOpen, onCl
         <nav className="flex-1 overflow-y-auto py-4 px-3">
           <ul className="space-y-0.5">
             {visibleItems.map((item) => {
-              const isActive =
+              const isActive = mounted && (
                 item.href === '/dashboard'
                   ? pathname === '/dashboard'
                   : pathname.startsWith(item.href)
+              )
               const Icon = item.icon
 
               return (
