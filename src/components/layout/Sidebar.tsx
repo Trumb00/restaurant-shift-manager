@@ -14,6 +14,7 @@ import {
   LogOut,
   X,
   ChevronRight,
+  Clock,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -32,6 +33,7 @@ const navItems: NavItem[] = [
   { label: 'Dipendenti', href: '/dashboard/dipendenti', icon: Users, roles: ['admin', 'manager'] },
   { label: 'Ferie & Permessi', href: '/dashboard/ferie', icon: Umbrella },
   { label: 'Assenze', href: '/dashboard/assenze', icon: AlertCircle },
+  { label: 'Ore dipendenti', href: '/dashboard/ore', icon: Clock, roles: ['admin', 'manager'] },
   { label: 'Impostazioni', href: '/dashboard/impostazioni', icon: Settings, roles: ['admin'] },
 ]
 

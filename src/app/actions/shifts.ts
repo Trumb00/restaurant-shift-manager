@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import type { Json } from '@/lib/supabase/types'
+import { sendEmail, schedulePublishedEmail } from '@/lib/email'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toJson(v: unknown): Json { return v as any }
@@ -329,7 +330,108 @@ export async function deleteShift(id: string): Promise<{ error?: string }> {
   return {}
 }
 
-export async function publishSchedule(scheduleId: string, sendEmail: boolean): Promise<{ error?: string }> {
+export interface EmployeeHoursCheck {
+  employee_id: string
+  employee_name: string
+  contracted_hours: number
+  shift_hours: number
+  vacation_hours: number
+  total_hours: number
+  deficit: number // negative = under contracted
+}
+
+export async function checkScheduleHours(scheduleId: string): Promise<{ data: EmployeeHoursCheck[]; error?: string }> {
+  const supabase = await createClient()
+
+  const { data: schedule } = await supabase
+    .from('schedules')
+    .select('week_start, week_end')
+    .eq('id', scheduleId)
+    .single()
+
+  if (!schedule) return { data: [] }
+
+  const { data: shifts } = await supabase
+    .from('shifts')
+    .select('employee_id, date, time_slots(start_time, end_time), employees(first_name, last_name, weekly_hours_contract)')
+    .eq('schedule_id', scheduleId)
+    .eq('status', 'draft')
+    .not('employee_id', 'is', null)
+
+  if (!shifts || shifts.length === 0) return { data: [] }
+
+  // Accumulate shift hours per employee
+  const byEmp = new Map<string, { name: string; contracted: number; shiftHours: number }>()
+
+  for (const s of shifts) {
+    if (!s.employee_id) continue
+    const emp = Array.isArray(s.employees) ? s.employees[0] : s.employees
+    const ts = Array.isArray(s.time_slots) ? s.time_slots[0] : s.time_slots
+    if (!emp || !ts) continue
+
+    if (!byEmp.has(s.employee_id)) {
+      byEmp.set(s.employee_id, {
+        name: `${(emp as { first_name: string; last_name: string; weekly_hours_contract: number | null }).first_name} ${(emp as { first_name: string; last_name: string; weekly_hours_contract: number | null }).last_name}`,
+        contracted: (emp as { first_name: string; last_name: string; weekly_hours_contract: number | null }).weekly_hours_contract ?? 0,
+        shiftHours: 0,
+      })
+    }
+
+    const slot = ts as { start_time: string; end_time: string }
+    const h = (new Date(`${s.date}T${slot.end_time}`).getTime() - new Date(`${s.date}T${slot.start_time}`).getTime()) / 3_600_000
+    byEmp.get(s.employee_id)!.shiftHours += h
+  }
+
+  // Accumulate approved vacation overlap hours per employee
+  const empIds = [...byEmp.keys()]
+  const { data: vacations } = await supabase
+    .from('vacations')
+    .select('employee_id, start_date, end_date')
+    .eq('status', 'approved')
+    .in('employee_id', empIds)
+    .lte('start_date', schedule.week_end)
+    .gte('end_date', schedule.week_start)
+
+  const vacHours = new Map<string, number>()
+  const wStart = new Date(schedule.week_start + 'T00:00:00Z')
+  const wEnd = new Date(schedule.week_end + 'T00:00:00Z')
+
+  for (const vac of vacations ?? []) {
+    const contracted = byEmp.get(vac.employee_id)?.contracted ?? 0
+    if (!contracted) continue
+    const dailyH = contracted / 5
+
+    const ovStart = new Date(Math.max(new Date(vac.start_date + 'T00:00:00Z').getTime(), wStart.getTime()))
+    const ovEnd = new Date(Math.min(new Date(vac.end_date + 'T00:00:00Z').getTime(), wEnd.getTime()))
+
+    let days = 0
+    const cur = new Date(ovStart)
+    while (cur <= ovEnd) {
+      const dow = cur.getUTCDay()
+      if (dow !== 0 && dow !== 6) days++
+      cur.setUTCDate(cur.getUTCDate() + 1)
+    }
+    vacHours.set(vac.employee_id, (vacHours.get(vac.employee_id) ?? 0) + days * dailyH)
+  }
+
+  const result: EmployeeHoursCheck[] = [...byEmp.entries()].map(([id, d]) => {
+    const vH = vacHours.get(id) ?? 0
+    const total = d.shiftHours + vH
+    return {
+      employee_id: id,
+      employee_name: d.name,
+      contracted_hours: d.contracted,
+      shift_hours: d.shiftHours,
+      vacation_hours: vH,
+      total_hours: total,
+      deficit: total - d.contracted,
+    }
+  })
+
+  return { data: result.sort((a, b) => a.deficit - b.deficit) }
+}
+
+export async function publishSchedule(scheduleId: string, sendNotification: boolean): Promise<{ error?: string }> {
   const supabase = await createClient()
   const { data: { session } } = await supabase.auth.getSession()
 
@@ -337,6 +439,13 @@ export async function publishSchedule(scheduleId: string, sendEmail: boolean): P
     .from('employees')
     .select('id')
     .eq('user_id', session?.user.id ?? '')
+    .single()
+
+  // Fetch schedule week dates before updating (needed for email)
+  const { data: schedule } = await supabase
+    .from('schedules')
+    .select('week_start, week_end')
+    .eq('id', scheduleId)
     .single()
 
   const { error: shiftError } = await supabase
@@ -358,24 +467,49 @@ export async function publishSchedule(scheduleId: string, sendEmail: boolean): P
 
   if (schedError) return { error: schedError.message }
 
-  if (sendEmail) {
+  if (sendNotification) {
     const { data: shifts } = await supabase
       .from('shifts')
-      .select('employee_id, date, time_slots(name), roles(name)')
+      .select('employee_id')
       .eq('schedule_id', scheduleId)
       .eq('status', 'published')
 
     if (shifts) {
-      const uniqueEmployees = [...new Set(shifts.map((s) => s.employee_id).filter((id): id is string => id !== null))]
-      const notifications = uniqueEmployees.map((empId) => ({
-        recipient_id: empId,
-        type: 'schedule_published',
-        title: 'Turni pubblicati',
-        body: 'I tuoi turni per la prossima settimana sono stati pubblicati.',
-        channel: 'email' as const,
-        status: 'pending' as const,
-      }))
-      await supabase.from('notifications').insert(notifications)
+      const uniqueEmpIds = [...new Set(shifts.map((s) => s.employee_id).filter((id): id is string => id !== null))]
+
+      // Insert notification records
+      await supabase.from('notifications').insert(
+        uniqueEmpIds.map((empId) => ({
+          recipient_id: empId,
+          type: 'schedule_published',
+          title: 'Turni pubblicati',
+          body: 'I tuoi turni per la prossima settimana sono stati pubblicati.',
+          channel: 'email' as const,
+          status: 'pending' as const,
+        }))
+      )
+
+      // Send emails immediately (do not rely on an external cron)
+      const { data: empData } = await supabase
+        .from('employees')
+        .select('id, first_name, last_name, email')
+        .in('id', uniqueEmpIds)
+
+      const fmt = (d: string) =>
+        new Date(d + 'T00:00:00Z').toLocaleDateString('it-IT', {
+          day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
+        })
+      const weekStart = schedule ? fmt(schedule.week_start) : ''
+      const weekEnd = schedule ? fmt(schedule.week_end) : ''
+
+      for (const emp of empData ?? []) {
+        if (!emp.email) continue
+        await sendEmail({
+          to: emp.email,
+          subject: 'I tuoi turni sono stati pubblicati',
+          html: schedulePublishedEmail(`${emp.first_name} ${emp.last_name}`, weekStart, weekEnd),
+        })
+      }
     }
   }
 
