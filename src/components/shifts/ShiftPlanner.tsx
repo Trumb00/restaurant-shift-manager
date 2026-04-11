@@ -328,6 +328,7 @@ export function ShiftPlanner({
 
       {/* Grid */}
       <DndContext
+        id="shift-planner"
         sensors={sensors}
         onDragStart={(e) => {
           const data = e.active.data.current as { type?: string; employeeId?: string } | undefined
