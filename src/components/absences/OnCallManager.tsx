@@ -92,7 +92,7 @@ export function OnCallManager({ allEmployees, allTimeSlots, initialWeekStart, in
   function toggleSlot(id: string) {
     setSelectedSlots(prev => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
   }
@@ -100,7 +100,7 @@ export function OnCallManager({ allEmployees, allTimeSlots, initialWeekStart, in
   function toggleDay(index: number) {
     setSelectedDays(prev => {
       const next = new Set(prev)
-      next.has(index) ? next.delete(index) : next.add(index)
+      if (next.has(index)) next.delete(index); else next.add(index)
       return next
     })
   }

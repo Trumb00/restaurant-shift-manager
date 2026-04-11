@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from '@/components/ui/dialog'
 import { createClient } from '@/lib/supabase/client'
+import type { Json } from '@/lib/supabase/types'
 import { useToast } from '@/hooks/use-toast'
 import { Plus, Trash2, Pencil } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -22,7 +23,7 @@ interface Requirement {
   role_id: string
   min_count: number
   ideal_count: number
-  days_of_week: number[] | null
+  days_of_week: Json | null
   time_slots: { name: string } | null
   roles: { name: string; color: string } | null
 }
@@ -278,7 +279,7 @@ export function ServiceRequirementManager({ requirements, timeSlots, roles }: Se
                       </td>
                       <td className="py-2 text-center font-medium">{req.min_count}</td>
                       <td className="py-2 text-center font-medium">{req.ideal_count}</td>
-                      <td className="py-2 text-xs text-gray-500">{daysSummary(req.days_of_week)}</td>
+                      <td className="py-2 text-xs text-gray-500">{daysSummary(req.days_of_week as number[] | null)}</td>
                       <td className="py-2">
                         <div className="flex items-center gap-1">
                           <Button
@@ -326,7 +327,7 @@ export function ServiceRequirementManager({ requirements, timeSlots, roles }: Se
                 role_id: editReq.role_id,
                 min_count: editReq.min_count,
                 ideal_count: editReq.ideal_count,
-                days_of_week: editReq.days_of_week ?? ALL_DAYS,
+                days_of_week: (editReq.days_of_week as number[] | null) ?? ALL_DAYS,
               }}
               onClose={() => setEditReq(null)}
             />

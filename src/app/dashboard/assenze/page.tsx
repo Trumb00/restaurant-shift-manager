@@ -49,6 +49,10 @@ export default async function AssenzePage() {
   })
 
   // Recent cancelled shifts (absences) - managers see all, employees see own
+  const thirtyDaysAgo = new Date(today)
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+  const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0]
+
   const absenceQuery = supabase
     .from('shifts')
     .select(`
@@ -58,7 +62,7 @@ export default async function AssenzePage() {
       roles(name, color)
     `)
     .eq('status', 'cancelled')
-    .gte('date', new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0])
+    .gte('date', thirtyDaysAgoStr)
     .order('date', { ascending: false })
     .limit(20)
 

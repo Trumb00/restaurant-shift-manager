@@ -43,6 +43,7 @@ export interface Database {
           is_active: boolean
           app_role: AppRole
           avatar_url: string | null
+          preferred_rest_days: Json | null
           created_at: string
           updated_at: string
         }
@@ -59,6 +60,7 @@ export interface Database {
           is_active?: boolean
           app_role?: AppRole
           avatar_url?: string | null
+          preferred_rest_days?: Json | null
           created_at?: string
           updated_at?: string
         }
@@ -75,6 +77,7 @@ export interface Database {
           is_active?: boolean
           app_role?: AppRole
           avatar_url?: string | null
+          preferred_rest_days?: Json | null
           created_at?: string
           updated_at?: string
         }
@@ -195,6 +198,7 @@ export interface Database {
           role_id: string
           min_count: number
           ideal_count: number
+          days_of_week: Json | null
         }
         Insert: {
           id?: string
@@ -202,6 +206,7 @@ export interface Database {
           role_id: string
           min_count?: number
           ideal_count?: number
+          days_of_week?: Json | null
         }
         Update: {
           id?: string
@@ -209,6 +214,7 @@ export interface Database {
           role_id?: string
           min_count?: number
           ideal_count?: number
+          days_of_week?: Json | null
         }
         Relationships: [
           {

@@ -144,8 +144,7 @@ export async function validateShiftConstraints(data: ShiftInput): Promise<Valida
 
   const { data: employee } = await supabase
     .from('employees')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .select('weekly_hours_contract, preferred_rest_days' as any)
+    .select('weekly_hours_contract, preferred_rest_days')
     .eq('id', data.employee_id)
     .single()
 
@@ -291,9 +290,13 @@ export async function createShift(data: ShiftInput): Promise<{ id: string } | { 
 export async function updateShift(id: string, data: Partial<ShiftInput>): Promise<{ error?: string }> {
   const supabase = await createClient()
 
+  // custom_start / custom_end are UI-only fields, not DB columns
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { custom_start, custom_end, ...dbFields } = data
+
   const { error } = await supabase
     .from('shifts')
-    .update({ ...data, updated_at: new Date().toISOString() })
+    .update({ ...dbFields, updated_at: new Date().toISOString() })
     .eq('id', id)
 
   if (error) return { error: error.message }
