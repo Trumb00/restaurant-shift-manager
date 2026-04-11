@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { UtensilsCrossed, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { requestMagicLink } from '@/app/actions/auth'
 
 type AuthError = { message: string } | null
 
@@ -54,13 +55,10 @@ function LoginForm() {
     setError(null)
     setMagicSuccess(false)
 
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      email: magicEmail,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
-    })
+    const result = await requestMagicLink(magicEmail)
 
-    if (otpError) {
-      setError({ message: otpError.message })
+    if (result.error) {
+      setError({ message: result.error })
       setLoading(false)
       return
     }
