@@ -121,7 +121,7 @@ export function HoursDashboard({ initialAnchor, initialData }: Props) {
       setData(d)
       setLoading(false)
     })
-  }, [start, effectiveEnd]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [start, effectiveEnd])
 
   function switchMode(m: ViewMode) {
     setAnchor(anchorForMode(anchor, m))
