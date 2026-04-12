@@ -29,12 +29,16 @@ function LoginForm() {
 
   const supabase = createClient()
 
-  async function handlePasswordLogin(e: React.FormEvent) {
+  async function handlePasswordLogin(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setLoading(true)
     setError(null)
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+    const formData = new FormData(e.currentTarget)
+    const emailVal = (formData.get('email') as string) || email
+    const passwordVal = (formData.get('password') as string) || password
+
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email: emailVal, password: passwordVal })
 
     if (signInError) {
       setError({ message: signInError.message === 'Invalid login credentials'
@@ -107,13 +111,13 @@ function LoginForm() {
                 <form onSubmit={handlePasswordLogin} className="space-y-4">
                   <div className="space-y-1.5">
                     <Label htmlFor="email">Email</Label>
-                    <Input id="email" type="email" placeholder="nome@ristorante.it" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" disabled={loading} />
+                    <Input id="email" name="email" type="email" placeholder="nome@ristorante.it" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" disabled={loading} />
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="password">Password</Label>
-                    <Input id="password" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" disabled={loading} />
+                    <Input id="password" name="password" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" disabled={loading} />
                   </div>
-                  <Button type="submit" className="w-full" disabled={loading || !email || !password}>
+                  <Button type="submit" className="w-full" disabled={loading}>
                     {loading ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Accesso in corso...</> : 'Accedi'}
                   </Button>
                 </form>
