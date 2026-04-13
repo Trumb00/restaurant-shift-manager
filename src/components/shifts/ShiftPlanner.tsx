@@ -19,9 +19,9 @@ import { WeekNavigator } from './WeekNavigator'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { updateShift, copyWeekSchedule } from '@/app/actions/shifts'
+import { updateShift, copyWeekSchedule, resetWeekSchedule } from '@/app/actions/shifts'
 import { useToast } from '@/hooks/use-toast'
-import { Plus, Send, Copy } from 'lucide-react'
+import { Plus, Send, Copy, RotateCcw } from 'lucide-react'
 import { formatTime, dayOfWeekLabel, getISOWeekNumber } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
@@ -158,6 +158,8 @@ export function ShiftPlanner({
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [publishOpen, setPublishOpen] = React.useState(false)
   const [copyOpen, setCopyOpen] = React.useState(false)
+  const [resetOpen, setResetOpen] = React.useState(false)
+  const [resetting, setResetting] = React.useState(false)
   const [selectedWeeks, setSelectedWeeks] = React.useState<Set<string>>(new Set())
   const [copying, setCopying] = React.useState(false)
   const [selectedCell, setSelectedCell] = React.useState<{ slotId: string; date: string } | null>(null)
@@ -296,6 +298,18 @@ export function ShiftPlanner({
     if (firstCopied) router.push(`/dashboard/turni?week=${firstCopied}`)
   }
 
+  async function handleReset() {
+    setResetting(true)
+    const result = await resetWeekSchedule(scheduleId)
+    setResetting(false)
+    if (result.error) {
+      toast({ title: 'Errore', description: result.error, variant: 'destructive' })
+    } else {
+      toast({ title: 'Settimana resettata', description: 'Tutti i turni sono stati eliminati.' })
+      setResetOpen(false)
+    }
+  }
+
   const uniqueEmployees = [...new Set(shifts.map((s) => s.employee_id))]
 
   return (
@@ -308,6 +322,12 @@ export function ShiftPlanner({
             {scheduleStatus === 'draft' ? 'Bozza' : scheduleStatus === 'published' ? 'Pubblicato' : 'Archiviato'}
           </Badge>
           {canEdit && (
+            <Button variant="outline" size="sm" onClick={() => setResetOpen(true)}>
+              <RotateCcw className="w-4 h-4 mr-2" />
+              Reset settimana
+            </Button>
+          )}
+          {canEdit && (
             <Button variant="outline" size="sm" onClick={() => setCopyOpen(true)}>
               <Copy className="w-4 h-4 mr-2" />
               Copia settimana
@@ -317,10 +337,9 @@ export function ShiftPlanner({
             <Button
               size="sm"
               onClick={() => setPublishOpen(true)}
-              disabled={scheduleStatus === 'published'}
             >
               <Send className="w-4 h-4 mr-2" />
-              {scheduleStatus === 'published' ? 'Già pubblicato' : 'Pubblica'}
+              {scheduleStatus === 'published' ? 'Ripubblica' : 'Pubblica'}
             </Button>
           )}
         </div>
@@ -491,6 +510,7 @@ export function ShiftPlanner({
         open={publishOpen}
         onOpenChange={setPublishOpen}
         scheduleId={scheduleId}
+        scheduleStatus={scheduleStatus}
         shiftCount={shifts.filter((s) => s.status === 'draft').length}
         employeeCount={uniqueEmployees.length}
       />
@@ -542,6 +562,25 @@ export function ShiftPlanner({
             <Button variant="outline" onClick={() => { setCopyOpen(false); setSelectedWeeks(new Set()) }}>Annulla</Button>
             <Button onClick={handleCopyWeek} disabled={selectedWeeks.size === 0 || copying}>
               {copying ? 'Copia in corso...' : `Copia${selectedWeeks.size > 0 ? ` (${selectedWeeks.size})` : ''}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset week dialog */}
+      <Dialog open={resetOpen} onOpenChange={setResetOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Reset settimana</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            Questa operazione elimina <strong>tutti i turni</strong> della settimana,
+            inclusi quelli già pubblicati. I dipendenti non riceveranno notifica automatica.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetOpen(false)}>Annulla</Button>
+            <Button variant="destructive" onClick={handleReset} disabled={resetting}>
+              {resetting ? 'Eliminazione…' : 'Elimina tutto'}
             </Button>
           </DialogFooter>
         </DialogContent>

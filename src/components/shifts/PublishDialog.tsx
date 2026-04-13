@@ -14,13 +14,14 @@ interface PublishDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   scheduleId: string
+  scheduleStatus: string
   shiftCount: number
   employeeCount: number
   onSuccess?: () => void
 }
 
 export function PublishDialog({
-  open, onOpenChange, scheduleId, shiftCount, employeeCount, onSuccess,
+  open, onOpenChange, scheduleId, scheduleStatus, shiftCount, employeeCount, onSuccess,
 }: PublishDialogProps) {
   const { toast } = useToast()
   const [sendNotification, setSendNotification] = React.useState(true)
@@ -39,6 +40,8 @@ export function PublishDialog({
     })
   }, [open, scheduleId])
 
+  const isRepublish = scheduleStatus === 'published'
+
   async function handlePublish() {
     setLoading(true)
     const result = await publishSchedule(scheduleId, sendNotification)
@@ -47,8 +50,12 @@ export function PublishDialog({
       toast({ title: 'Errore', description: result.error, variant: 'destructive' })
     } else {
       toast({
-        title: 'Turni pubblicati!',
-        description: sendNotification ? `Email inviate a ${employeeCount} dipendenti.` : undefined,
+        title: isRepublish ? 'Turni ripubblicati!' : 'Turni pubblicati!',
+        description: sendNotification
+          ? isRepublish
+            ? 'Email inviate ai dipendenti con turni modificati.'
+            : `Email inviate a ${employeeCount} dipendenti.`
+          : undefined,
       })
       onSuccess?.()
       onOpenChange(false)
@@ -59,19 +66,28 @@ export function PublishDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Pubblica turni settimanali</DialogTitle>
+          <DialogTitle>{isRepublish ? 'Ripubblica turni settimanali' : 'Pubblica turni settimanali'}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           <div className="bg-blue-50 rounded-lg p-3 space-y-2">
-            <div className="flex items-center gap-2 text-sm text-blue-700">
-              <CheckCircle2 className="w-4 h-4" />
-              <span><strong>{shiftCount}</strong> turni verranno pubblicati</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-blue-700">
-              <CheckCircle2 className="w-4 h-4" />
-              <span><strong>{employeeCount}</strong> dipendenti coinvolti</span>
-            </div>
+            {isRepublish ? (
+              <div className="flex items-center gap-2 text-sm text-blue-700">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Le modifiche successive all&apos;ultima pubblicazione verranno rese definitive.</span>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 text-sm text-blue-700">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span><strong>{shiftCount}</strong> turni verranno pubblicati</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-blue-700">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span><strong>{employeeCount}</strong> dipendenti coinvolti</span>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Hours warning */}
@@ -117,14 +133,18 @@ export function PublishDialog({
               {sendNotification && <CheckCircle2 className="w-3 h-3 text-white" />}
             </div>
             <Mail className="w-4 h-4 text-gray-500" />
-            <span className="text-sm text-gray-700">Invia email ai dipendenti</span>
+            <span className="text-sm text-gray-700">
+              {isRepublish ? 'Notifica i dipendenti con turni modificati' : 'Invia email ai dipendenti'}
+            </span>
           </button>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Annulla</Button>
           <Button onClick={handlePublish} disabled={loading || checking}>
-            {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Pubblicazione…</> : 'Pubblica'}
+            {loading
+              ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Pubblicazione…</>
+              : isRepublish ? 'Ripubblica' : 'Pubblica'}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -109,6 +109,59 @@ export function vacationReviewedEmail(employeeName: string, approved: boolean, t
   `)
 }
 
+export interface ShiftEmailRow {
+  date: string        // 'YYYY-MM-DD'
+  slotName: string
+  startTime: string   // 'HH:MM'
+  endTime: string
+}
+
+export function scheduleUpdatedEmail(
+  employeeName: string,
+  weekStart: string,
+  weekEnd: string,
+  shifts: ShiftEmailRow[],
+): string {
+  const fmtDate = (d: string) =>
+    new Date(d + 'T00:00:00Z').toLocaleDateString('it-IT', {
+      weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC',
+    })
+
+  const shiftRows = shifts
+    .map(s => `
+      <tr>
+        <td style="padding: 8px 12px; font-size: 14px; color: #374151; border-bottom: 1px solid #f1f5f9; text-transform: capitalize;">${fmtDate(s.date)}</td>
+        <td style="padding: 8px 12px; font-size: 14px; color: #374151; border-bottom: 1px solid #f1f5f9;">${s.slotName}</td>
+        <td style="padding: 8px 12px; font-size: 14px; color: #374151; border-bottom: 1px solid #f1f5f9; white-space: nowrap;">${s.startTime} – ${s.endTime}</td>
+      </tr>`)
+    .join('')
+
+  const tableOrEmpty = shifts.length > 0
+    ? `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; margin: 0 0 16px;">
+        <thead>
+          <tr style="background: #f8fafc;">
+            <th style="padding: 8px 12px; font-size: 12px; font-weight: 600; color: #6b7280; text-align: left; border-bottom: 1px solid #e2e8f0;">Giorno</th>
+            <th style="padding: 8px 12px; font-size: 12px; font-weight: 600; color: #6b7280; text-align: left; border-bottom: 1px solid #e2e8f0;">Fascia</th>
+            <th style="padding: 8px 12px; font-size: 12px; font-weight: 600; color: #6b7280; text-align: left; border-bottom: 1px solid #e2e8f0;">Orario</th>
+          </tr>
+        </thead>
+        <tbody>${shiftRows}</tbody>
+      </table>`
+    : `<p style="color: #6b7280; font-size: 14px; font-style: italic; margin: 0 0 16px;">Nessun turno assegnato questa settimana.</p>`
+
+  return baseLayout(`
+    <p style="color: #374151; font-size: 15px; margin: 0 0 16px;">Ciao <strong>${employeeName}</strong>,</p>
+    <p style="color: #374151; font-size: 15px; margin: 0 0 16px;">
+      I tuoi turni per la settimana <strong>${weekStart} – ${weekEnd}</strong> sono stati aggiornati.
+      Ecco il tuo programma completo:
+    </p>
+    ${tableOrEmpty}
+    <a href="${APP_URL}/dashboard/turni" style="display: inline-block; background: #4f46e5; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
+      Vedi i miei turni
+    </a>
+  `)
+}
+
 export function absenceNotificationEmail(managerName: string, employeeName: string, date: string, slotName: string, reason: string): string {
   return baseLayout(`
     <p style="color: #374151; font-size: 15px; margin: 0 0 16px;">Ciao <strong>${managerName}</strong>,</p>

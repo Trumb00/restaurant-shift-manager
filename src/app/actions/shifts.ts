@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import type { Json } from '@/lib/supabase/types'
-import { sendEmail, schedulePublishedEmail } from '@/lib/email'
+import { sendEmail, schedulePublishedEmail, scheduleUpdatedEmail } from '@/lib/email'
+import type { ShiftEmailRow } from '@/lib/email'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toJson(v: unknown): Json { return v as any }
@@ -330,6 +331,37 @@ export async function deleteShift(id: string): Promise<{ error?: string }> {
   return {}
 }
 
+export async function resetWeekSchedule(scheduleId: string): Promise<{ error?: string }> {
+  const supabase = await createClient()
+  const { data: { session } } = await supabase.auth.getSession()
+
+  const { error } = await supabase
+    .from('shifts')
+    .delete()
+    .eq('schedule_id', scheduleId)
+
+  if (error) return { error: error.message }
+
+  // If the schedule was published, revert it to draft
+  await supabase
+    .from('schedules')
+    .update({ status: 'draft', published_at: null, published_by: null })
+    .eq('id', scheduleId)
+    .eq('status', 'published')
+
+  if (session) {
+    await supabase.from('audit_logs').insert({
+      user_id: session.user.id,
+      action: 'RESET_WEEK',
+      entity_type: 'schedules',
+      entity_id: scheduleId,
+    })
+  }
+
+  revalidatePath('/dashboard/turni')
+  return {}
+}
+
 export interface EmployeeHoursCheck {
   employee_id: string
   employee_name: string
@@ -441,85 +473,179 @@ export async function publishSchedule(scheduleId: string, sendNotification: bool
     .eq('user_id', session?.user.id ?? '')
     .single()
 
-  // Fetch schedule week dates before updating (needed for email)
   const { data: schedule } = await supabase
     .from('schedules')
-    .select('week_start, week_end')
+    .select('week_start, week_end, status, published_at')
     .eq('id', scheduleId)
     .single()
 
-  const { error: shiftError } = await supabase
-    .from('shifts')
-    .update({ status: 'published' })
-    .eq('schedule_id', scheduleId)
-    .eq('status', 'draft')
+  if (!schedule) return { error: 'Schedule non trovato.' }
 
-  if (shiftError) return { error: shiftError.message }
-
-  const { error: schedError } = await supabase
-    .from('schedules')
-    .update({
-      status: 'published',
-      published_at: new Date().toISOString(),
-      published_by: employee?.id,
+  const fmt = (d: string) =>
+    new Date(d + 'T00:00:00Z').toLocaleDateString('it-IT', {
+      day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
     })
-    .eq('id', scheduleId)
+  const weekStart = fmt(schedule.week_start)
+  const weekEnd = fmt(schedule.week_end)
 
-  if (schedError) return { error: schedError.message }
+  const isRepublish = schedule.status === 'published' && schedule.published_at != null
 
-  if (sendNotification) {
-    const { data: shifts } = await supabase
+  if (isRepublish) {
+    // ── RE-PUBLISH FLOW ──────────────────────────────────────────────────────
+    const prevPublishedAt = schedule.published_at!
+
+    // Promote any draft shifts added after the initial publish
+    await supabase
       .from('shifts')
-      .select('employee_id')
+      .update({ status: 'published' })
       .eq('schedule_id', scheduleId)
-      .eq('status', 'published')
+      .eq('status', 'draft')
 
-    if (shifts) {
-      const uniqueEmpIds = [...new Set(shifts.map((s) => s.employee_id).filter((id): id is string => id !== null))]
+    const { error: schedError } = await supabase
+      .from('schedules')
+      .update({ published_at: new Date().toISOString(), published_by: employee?.id })
+      .eq('id', scheduleId)
 
-      // Insert notification records
-      await supabase.from('notifications').insert(
-        uniqueEmpIds.map((empId) => ({
-          recipient_id: empId,
-          type: 'schedule_published',
-          title: 'Turni pubblicati',
-          body: 'I tuoi turni per la prossima settimana sono stati pubblicati.',
-          channel: 'email' as const,
-          status: 'pending' as const,
-        }))
-      )
+    if (schedError) return { error: schedError.message }
 
-      // Send emails immediately (do not rely on an external cron)
-      const { data: empData } = await supabase
-        .from('employees')
-        .select('id, first_name, last_name, email')
-        .in('id', uniqueEmpIds)
+    if (sendNotification) {
+      // Employees with modified/added shifts since last publish
+      const { data: modifiedShifts } = await supabase
+        .from('shifts')
+        .select('employee_id')
+        .eq('schedule_id', scheduleId)
+        .gt('updated_at', prevPublishedAt)
+        .not('employee_id', 'is', null)
 
-      const fmt = (d: string) =>
-        new Date(d + 'T00:00:00Z').toLocaleDateString('it-IT', {
-          day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
-        })
-      const weekStart = schedule ? fmt(schedule.week_start) : ''
-      const weekEnd = schedule ? fmt(schedule.week_end) : ''
+      // Employees whose shifts were deleted since last publish (stored in audit_logs old_values)
+      const { data: deletedLogs } = await supabase
+        .from('audit_logs')
+        .select('old_values')
+        .eq('action', 'DELETE')
+        .eq('entity_type', 'shifts')
+        .gt('timestamp', prevPublishedAt)
 
-      for (const emp of empData ?? []) {
-        if (!emp.email) continue
-        await sendEmail({
-          to: emp.email,
-          subject: 'I tuoi turni sono stati pubblicati',
-          html: schedulePublishedEmail(`${emp.first_name} ${emp.last_name}`, weekStart, weekEnd),
-        })
+      const affectedIds = new Set<string>()
+      for (const s of modifiedShifts ?? []) {
+        if (s.employee_id) affectedIds.add(s.employee_id)
+      }
+      for (const log of deletedLogs ?? []) {
+        const ov = log.old_values as Record<string, unknown> | null
+        if (ov?.schedule_id === scheduleId && typeof ov?.employee_id === 'string') {
+          affectedIds.add(ov.employee_id)
+        }
+      }
+
+      if (affectedIds.size > 0) {
+        const { data: empData } = await supabase
+          .from('employees')
+          .select('id, first_name, last_name, email')
+          .in('id', [...affectedIds])
+
+        for (const emp of empData ?? []) {
+          if (!emp.email) continue
+
+          const { data: empShifts } = await supabase
+            .from('shifts')
+            .select('date, time_slots(name, start_time, end_time)')
+            .eq('schedule_id', scheduleId)
+            .eq('employee_id', emp.id)
+            .in('status', ['published', 'draft'])
+            .order('date')
+
+          const shiftRows: ShiftEmailRow[] = (empShifts ?? []).map((s) => {
+            const ts = Array.isArray(s.time_slots) ? s.time_slots[0] : s.time_slots
+            return {
+              date: s.date,
+              slotName: (ts as { name: string } | null)?.name ?? '',
+              startTime: (ts as { start_time: string } | null)?.start_time?.slice(0, 5) ?? '',
+              endTime: (ts as { end_time: string } | null)?.end_time?.slice(0, 5) ?? '',
+            }
+          })
+
+          await sendEmail({
+            to: emp.email,
+            subject: 'I tuoi turni sono stati aggiornati',
+            html: scheduleUpdatedEmail(`${emp.first_name} ${emp.last_name}`, weekStart, weekEnd, shiftRows),
+          })
+        }
       }
     }
-  }
 
-  if (session) {
-    await supabase.from('audit_logs').insert({
-      user_id: session.user.id,
-      action: 'PUBLISH',
-      entity_type: 'schedules',
-      entity_id: scheduleId,
-    })
+    if (session) {
+      await supabase.from('audit_logs').insert({
+        user_id: session.user.id,
+        action: 'REPUBLISH',
+        entity_type: 'schedules',
+        entity_id: scheduleId,
+      })
+    }
+  } else {
+    // ── INITIAL PUBLISH FLOW ─────────────────────────────────────────────────
+    const { error: shiftError } = await supabase
+      .from('shifts')
+      .update({ status: 'published' })
+      .eq('schedule_id', scheduleId)
+      .eq('status', 'draft')
+
+    if (shiftError) return { error: shiftError.message }
+
+    const { error: schedError } = await supabase
+      .from('schedules')
+      .update({
+        status: 'published',
+        published_at: new Date().toISOString(),
+        published_by: employee?.id,
+      })
+      .eq('id', scheduleId)
+
+    if (schedError) return { error: schedError.message }
+
+    if (sendNotification) {
+      const { data: shifts } = await supabase
+        .from('shifts')
+        .select('employee_id')
+        .eq('schedule_id', scheduleId)
+        .eq('status', 'published')
+
+      if (shifts) {
+        const uniqueEmpIds = [...new Set(shifts.map((s) => s.employee_id).filter((id): id is string => id !== null))]
+
+        await supabase.from('notifications').insert(
+          uniqueEmpIds.map((empId) => ({
+            recipient_id: empId,
+            type: 'schedule_published',
+            title: 'Turni pubblicati',
+            body: 'I tuoi turni per la prossima settimana sono stati pubblicati.',
+            channel: 'email' as const,
+            status: 'pending' as const,
+          }))
+        )
+
+        const { data: empData } = await supabase
+          .from('employees')
+          .select('id, first_name, last_name, email')
+          .in('id', uniqueEmpIds)
+
+        for (const emp of empData ?? []) {
+          if (!emp.email) continue
+          await sendEmail({
+            to: emp.email,
+            subject: 'I tuoi turni sono stati pubblicati',
+            html: schedulePublishedEmail(`${emp.first_name} ${emp.last_name}`, weekStart, weekEnd),
+          })
+        }
+      }
+    }
+
+    if (session) {
+      await supabase.from('audit_logs').insert({
+        user_id: session.user.id,
+        action: 'PUBLISH',
+        entity_type: 'schedules',
+        entity_id: scheduleId,
+      })
+    }
   }
 
   revalidatePath('/dashboard/turni')
