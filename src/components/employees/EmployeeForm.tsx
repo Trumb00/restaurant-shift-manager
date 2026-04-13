@@ -48,7 +48,7 @@ interface EmployeeFormProps {
   defaultValues?: Partial<FormData>
   availableRoles: AvailableRole[]
   isAdmin?: boolean
-  onSuccess?: () => void
+  onSuccess?: (created?: { id: string; firstName: string; lastName: string }) => void
 }
 
 const CONTRACT_LABELS: Record<ContractType, string> = {
@@ -115,7 +115,11 @@ export function EmployeeForm({ employeeId, defaultValues, availableRoles, isAdmi
         toast({ title: 'Errore', description: result.error, variant: 'destructive' })
       } else {
         toast({ title: employeeId ? 'Dipendente aggiornato' : 'Dipendente creato' })
-        onSuccess?.()
+        if (!employeeId && 'id' in result) {
+          onSuccess?.({ id: result.id, firstName: values.first_name, lastName: values.last_name })
+        } else {
+          onSuccess?.()
+        }
       }
     } finally {
       setLoading(false)

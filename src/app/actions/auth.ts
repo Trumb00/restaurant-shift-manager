@@ -29,6 +29,25 @@ export async function requestMagicLink(email: string): Promise<{ error?: string 
   return {}
 }
 
+export async function sendEmployeeInvite(employeeId: string): Promise<{ error?: string }> {
+  const admin = createAdminClient()
+
+  const { data: emp } = await admin
+    .from('employees')
+    .select('email, first_name, last_name, is_active')
+    .eq('id', employeeId)
+    .maybeSingle()
+
+  if (!emp) return { error: 'Dipendente non trovato.' }
+  if (!emp.is_active) return { error: 'Il dipendente non è attivo.' }
+
+  const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/auth/reset-password`
+  const { error } = await admin.auth.admin.inviteUserByEmail(emp.email, { redirectTo })
+
+  if (error) return { error: error.message }
+  return {}
+}
+
 export async function requestPasswordReset(email: string): Promise<{ error?: string }> {
   const admin = createAdminClient()
 
