@@ -296,12 +296,29 @@ export async function updateShift(id: string, data: Partial<ShiftInput>): Promis
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { custom_start, custom_end, ...dbFields } = data
 
+  const { data: { session } } = await supabase.auth.getSession()
+  const { data: existing } = await supabase
+    .from('shifts')
+    .select('employee_id, schedule_id')
+    .eq('id', id)
+    .single()
+
   const { error } = await supabase
     .from('shifts')
     .update({ ...dbFields, updated_at: new Date().toISOString() })
     .eq('id', id)
 
   if (error) return { error: error.message }
+
+  if (session && existing) {
+    await supabase.from('audit_logs').insert({
+      user_id: session.user.id,
+      action: 'UPDATE',
+      entity_type: 'shifts',
+      entity_id: id,
+      new_values: toJson({ employee_id: existing.employee_id, schedule_id: existing.schedule_id }),
+    })
+  }
 
   revalidatePath('/dashboard/turni')
   return {}
@@ -509,15 +526,15 @@ export async function publishSchedule(scheduleId: string, sendNotification: bool
     if (schedError) return { error: schedError.message }
 
     if (sendNotification) {
-      // Employees with modified/added shifts since last publish
-      const { data: modifiedShifts } = await supabase
-        .from('shifts')
-        .select('employee_id')
-        .eq('schedule_id', scheduleId)
-        .gt('updated_at', prevPublishedAt)
-        .not('employee_id', 'is', null)
+      // Employees with inserted/updated shifts since last publish (via audit_logs)
+      const { data: insertUpdateLogs } = await supabase
+        .from('audit_logs')
+        .select('new_values')
+        .in('action', ['INSERT', 'UPDATE'])
+        .eq('entity_type', 'shifts')
+        .gt('timestamp', prevPublishedAt)
 
-      // Employees whose shifts were deleted since last publish (stored in audit_logs old_values)
+      // Employees whose shifts were deleted since last publish
       const { data: deletedLogs } = await supabase
         .from('audit_logs')
         .select('old_values')
@@ -526,8 +543,11 @@ export async function publishSchedule(scheduleId: string, sendNotification: bool
         .gt('timestamp', prevPublishedAt)
 
       const affectedIds = new Set<string>()
-      for (const s of modifiedShifts ?? []) {
-        if (s.employee_id) affectedIds.add(s.employee_id)
+      for (const log of insertUpdateLogs ?? []) {
+        const nv = log.new_values as Record<string, unknown> | null
+        if (nv?.schedule_id === scheduleId && typeof nv?.employee_id === 'string') {
+          affectedIds.add(nv.employee_id)
+        }
       }
       for (const log of deletedLogs ?? []) {
         const ov = log.old_values as Record<string, unknown> | null
