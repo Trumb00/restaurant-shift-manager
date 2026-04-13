@@ -13,7 +13,6 @@ import { UtensilsCrossed, Loader2, AlertCircle } from 'lucide-react'
 
 export default function ResetPasswordPage() {
   const router = useRouter()
-  const supabase = createClient()
 
   const [sessionReady, setSessionReady] = React.useState(false)
   const [password, setPassword] = React.useState('')
@@ -22,6 +21,7 @@ export default function ResetPasswordPage() {
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
+    const supabase = createClient()
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) {
         router.replace('/login?error=auth')
@@ -46,6 +46,7 @@ export default function ResetPasswordPage() {
     }
 
     setLoading(true)
+    const supabase = createClient()
     const { error: updateError } = await supabase.auth.updateUser({ password })
     setLoading(false)
 
