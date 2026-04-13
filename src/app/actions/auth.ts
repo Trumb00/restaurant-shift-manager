@@ -29,6 +29,17 @@ export async function requestMagicLink(email: string): Promise<{ error?: string 
   return {}
 }
 
+async function sendSetPasswordEmail(admin: ReturnType<typeof createAdminClient>, email: string): Promise<{ error?: string }> {
+  const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/auth/reset-password`
+  // Try invite first — creates auth user if they don't have one yet
+  const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, { redirectTo })
+  if (!inviteError) return {}
+  // User already has an auth account — send a password reset email instead
+  const { error: resetError } = await admin.auth.resetPasswordForEmail(email, { redirectTo })
+  if (resetError) return { error: resetError.message }
+  return {}
+}
+
 export async function sendEmployeeInvite(employeeId: string): Promise<{ error?: string }> {
   const admin = createAdminClient()
 
@@ -41,11 +52,7 @@ export async function sendEmployeeInvite(employeeId: string): Promise<{ error?: 
   if (!emp) return { error: 'Dipendente non trovato.' }
   if (!emp.is_active) return { error: 'Il dipendente non è attivo.' }
 
-  const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/auth/reset-password`
-  const { error } = await admin.auth.admin.inviteUserByEmail(emp.email, { redirectTo })
-
-  if (error) return { error: error.message }
-  return {}
+  return sendSetPasswordEmail(admin, emp.email)
 }
 
 export async function bulkSendInvites(employeeIds: string[]): Promise<{ sent: number; failed: number }> {
@@ -58,14 +65,13 @@ export async function bulkSendInvites(employeeIds: string[]): Promise<{ sent: nu
 
   if (!employees) return { sent: 0, failed: employeeIds.length }
 
-  const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/auth/reset-password`
   let sent = 0
   let failed = 0
 
   await Promise.all(
     employees.map(async (emp) => {
       if (!emp.is_active) { failed++; return }
-      const { error } = await admin.auth.admin.inviteUserByEmail(emp.email, { redirectTo })
+      const { error } = await sendSetPasswordEmail(admin, emp.email)
       if (error) { failed++ } else { sent++ }
     })
   )
