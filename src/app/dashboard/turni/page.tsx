@@ -71,7 +71,7 @@ export default async function TurniPage({
     supabase
       .from('shifts')
       .select(`
-        id, employee_id, time_slot_id, role_id, date, status,
+        id, employee_id, time_slot_id, role_id, date, status, updated_at,
         is_split_shift, notes,
         employees(first_name, last_name),
         roles(name, color)
@@ -112,6 +112,7 @@ export default async function TurniPage({
         weekDates={weekDates}
         scheduleId={schedule.id}
         scheduleStatus={schedule.status}
+        publishedAt={(schedule.published_at as string | null) ?? null}
         shifts={(shifts ?? []) as Parameters<typeof ShiftPlanner>[0]['shifts']}
         timeSlots={timeSlots ?? []}
         employees={(employees ?? []) as Parameters<typeof ShiftPlanner>[0]['employees']}

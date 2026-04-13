@@ -299,7 +299,7 @@ export async function updateShift(id: string, data: Partial<ShiftInput>): Promis
   const { data: { session } } = await supabase.auth.getSession()
   const { data: existing } = await supabase
     .from('shifts')
-    .select('employee_id, schedule_id')
+    .select('*')
     .eq('id', id)
     .single()
 
@@ -316,6 +316,7 @@ export async function updateShift(id: string, data: Partial<ShiftInput>): Promis
       action: 'UPDATE',
       entity_type: 'shifts',
       entity_id: id,
+      old_values: toJson(existing),
       new_values: toJson({ employee_id: existing.employee_id, schedule_id: existing.schedule_id }),
     })
   }
@@ -844,4 +845,98 @@ export async function getMonthShifts(
   }))
 
   return { data: { weeks, timeSlots: timeSlots ?? [] } }
+}
+
+export async function revertToPublished(scheduleId: string): Promise<{ error?: string }> {
+  const supabase = await createClient()
+  const { data: { session } } = await supabase.auth.getSession()
+
+  const { data: schedule } = await supabase
+    .from('schedules')
+    .select('published_at')
+    .eq('id', scheduleId)
+    .single()
+
+  if (!schedule?.published_at) return { error: 'Nessuna versione pubblicata trovata.' }
+  const publishedAt = schedule.published_at
+
+  // 1. Delete draft shifts (new shifts added since last publish)
+  await supabase
+    .from('shifts')
+    .delete()
+    .eq('schedule_id', scheduleId)
+    .eq('status', 'draft')
+
+  // 2. Restore deleted shifts from audit_logs
+  const { data: deleteLogs } = await supabase
+    .from('audit_logs')
+    .select('old_values')
+    .eq('action', 'DELETE')
+    .eq('entity_type', 'shifts')
+    .gt('timestamp', publishedAt)
+
+  for (const log of deleteLogs ?? []) {
+    const ov = log.old_values as Record<string, unknown> | null
+    if (!ov || ov.schedule_id !== scheduleId) continue
+    const restoredShift = {
+      id: ov.id as string,
+      schedule_id: ov.schedule_id as string,
+      employee_id: (ov.employee_id as string | null) ?? null,
+      time_slot_id: (ov.time_slot_id as string | null) ?? null,
+      role_id: (ov.role_id as string | null) ?? null,
+      date: ov.date as string,
+      actual_start: (ov.actual_start as string | null) ?? null,
+      actual_end: (ov.actual_end as string | null) ?? null,
+      is_split_shift: (ov.is_split_shift as boolean) ?? false,
+      notes: (ov.notes as string | null) ?? null,
+      status: 'published' as const,
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await supabase.from('shifts').insert(restoredShift as any)
+  }
+
+  // 3. Revert modified shifts (use earliest UPDATE log per shift since last publish)
+  const { data: updateLogs } = await supabase
+    .from('audit_logs')
+    .select('entity_id, old_values')
+    .eq('action', 'UPDATE')
+    .eq('entity_type', 'shifts')
+    .gt('timestamp', publishedAt)
+    .order('timestamp', { ascending: true })
+
+  const earliest = new Map<string, Record<string, unknown>>()
+  for (const log of updateLogs ?? []) {
+    const ov = log.old_values as Record<string, unknown> | null
+    if (ov?.schedule_id === scheduleId && log.entity_id && !earliest.has(log.entity_id)) {
+      earliest.set(log.entity_id, ov)
+    }
+  }
+
+  for (const [entityId, ov] of earliest) {
+    await supabase
+      .from('shifts')
+      .update({
+        employee_id: (ov.employee_id as string | null) ?? null,
+        time_slot_id: (ov.time_slot_id as string | null) ?? null,
+        role_id: (ov.role_id as string | null) ?? null,
+        date: ov.date as string,
+        actual_start: (ov.actual_start as string | null) ?? null,
+        actual_end: (ov.actual_end as string | null) ?? null,
+        is_split_shift: (ov.is_split_shift as boolean) ?? false,
+        notes: (ov.notes as string | null) ?? null,
+      })
+      .eq('id', entityId)
+  }
+
+  if (session) {
+    await supabase.from('audit_logs').insert({
+      user_id: session.user.id,
+      action: 'REVERT',
+      entity_type: 'schedules',
+      entity_id: scheduleId,
+    })
+  }
+
+  revalidatePath('/dashboard/turni')
+  return {}
 }

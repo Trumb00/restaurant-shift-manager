@@ -20,7 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
-import { updateShift, copyWeekSchedule, resetWeekSchedule, getMonthShifts } from '@/app/actions/shifts'
+import { updateShift, copyWeekSchedule, resetWeekSchedule, getMonthShifts, revertToPublished } from '@/app/actions/shifts'
 import { useToast } from '@/hooks/use-toast'
 import { Plus, Send, Copy, RotateCcw, FileDown } from 'lucide-react'
 import { formatTime, dayOfWeekLabel, getISOWeekNumber, getWeekDates } from '@/lib/utils'
@@ -35,6 +35,7 @@ interface ShiftData {
   role_id: string
   date: string
   status: string
+  updated_at: string
   is_split_shift: boolean
   notes: string | null
   employees: { first_name: string; last_name: string } | null
@@ -74,6 +75,7 @@ interface ShiftPlannerProps {
   weekDates: Date[]
   scheduleId: string
   scheduleStatus: string
+  publishedAt: string | null
   shifts: ShiftData[]
   timeSlots: TimeSlot[]
   employees: Employee[]
@@ -149,6 +151,7 @@ export function ShiftPlanner({
   weekDates,
   scheduleId,
   scheduleStatus,
+  publishedAt,
   shifts,
   timeSlots,
   employees,
@@ -163,6 +166,9 @@ export function ShiftPlanner({
   const [resetOpen, setResetOpen] = React.useState(false)
   const [resetting, setResetting] = React.useState(false)
   const [pdfLoading, setPdfLoading] = React.useState(false)
+  const [hasLocalChanges, setHasLocalChanges] = React.useState(false)
+  const [revertOpen, setRevertOpen] = React.useState(false)
+  const [reverting, setReverting] = React.useState(false)
   const [selectedWeeks, setSelectedWeeks] = React.useState<Set<string>>(new Set())
   const [copying, setCopying] = React.useState(false)
   const [selectedCell, setSelectedCell] = React.useState<{ slotId: string; date: string } | null>(null)
@@ -174,6 +180,16 @@ export function ShiftPlanner({
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   )
+
+  // Detect unpublished changes on a published schedule
+  const hasDraftChanges = React.useMemo(() => {
+    if (scheduleStatus !== 'published') return false
+    if (shifts.some((s) => s.status === 'draft')) return true
+    if (publishedAt && shifts.some((s) => s.updated_at > publishedAt)) return true
+    return false
+  }, [shifts, scheduleStatus, publishedAt])
+
+  const showDraftBadge = hasDraftChanges || hasLocalChanges
 
   // Group shifts by slotId + date
   const shiftMap = React.useMemo(() => {
@@ -275,6 +291,8 @@ export function ShiftPlanner({
     })
     if (result.error) {
       toast({ title: 'Errore nello spostamento', description: result.error, variant: 'destructive' })
+    } else if (scheduleStatus === 'published') {
+      setHasLocalChanges(true)
     }
   }
 
@@ -334,6 +352,19 @@ export function ShiftPlanner({
     downloadMonthlyPDF({ year, month, timeSlots: result.data.timeSlots, weeks })
   }
 
+  async function handleRevert() {
+    setReverting(true)
+    const result = await revertToPublished(scheduleId)
+    setReverting(false)
+    if (result.error) {
+      toast({ title: 'Errore', description: result.error, variant: 'destructive' })
+    } else {
+      setHasLocalChanges(false)
+      setRevertOpen(false)
+      toast({ title: 'Ripristinato', description: 'Turni ripristinati all\'ultima versione pubblicata.' })
+    }
+  }
+
   const uniqueEmployees = [...new Set(shifts.map((s) => s.employee_id))]
 
   return (
@@ -342,9 +373,15 @@ export function ShiftPlanner({
       <div className="flex items-center justify-between flex-wrap gap-3">
         <WeekNavigator weekStart={weekStart} />
         <div className="flex items-center gap-2">
-          <Badge variant={scheduleStatus === 'published' ? 'success' : scheduleStatus === 'archived' ? 'secondary' : 'warning'}>
-            {scheduleStatus === 'draft' ? 'Bozza' : scheduleStatus === 'published' ? 'Pubblicato' : 'Archiviato'}
+          <Badge variant={showDraftBadge ? 'warning' : scheduleStatus === 'published' ? 'success' : scheduleStatus === 'archived' ? 'secondary' : 'warning'}>
+            {showDraftBadge ? 'Modifiche non pubblicate' : scheduleStatus === 'draft' ? 'Bozza' : scheduleStatus === 'published' ? 'Pubblicato' : 'Archiviato'}
           </Badge>
+          {showDraftBadge && scheduleStatus === 'published' && canEdit && (
+            <Button variant="ghost" size="sm" className="text-amber-600 hover:text-amber-700" onClick={() => setRevertOpen(true)}>
+              <RotateCcw className="w-4 h-4 mr-1" />
+              Ripristina
+            </Button>
+          )}
           {canEdit && (
             <Button variant="outline" size="sm" onClick={() => setResetOpen(true)}>
               <RotateCcw className="w-4 h-4 mr-2" />
@@ -538,6 +575,9 @@ export function ShiftPlanner({
           timeSlots={timeSlots}
           editShiftId={editShiftId}
           initialEmployeeId={prefillEmployeeId}
+          onSuccess={() => {
+            if (scheduleStatus === 'published') setHasLocalChanges(true)
+          }}
         />
       )}
 
@@ -549,6 +589,7 @@ export function ShiftPlanner({
         scheduleStatus={scheduleStatus}
         shiftCount={shifts.filter((s) => s.status === 'draft').length}
         employeeCount={uniqueEmployees.length}
+        onSuccess={() => setHasLocalChanges(false)}
       />
 
       {/* Copy week dialog */}
@@ -617,6 +658,25 @@ export function ShiftPlanner({
             <Button variant="outline" onClick={() => setResetOpen(false)}>Annulla</Button>
             <Button variant="destructive" onClick={handleReset} disabled={resetting}>
               {resetting ? 'Eliminazione…' : 'Elimina tutto'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Revert to last published dialog */}
+      <Dialog open={revertOpen} onOpenChange={setRevertOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Ripristina ultima pubblicazione</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            Verranno annullate tutte le modifiche apportate dall&apos;ultima pubblicazione.
+            I dipendenti non riceveranno notifica.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRevertOpen(false)}>Annulla</Button>
+            <Button variant="destructive" onClick={handleRevert} disabled={reverting}>
+              {reverting ? 'Ripristino…' : 'Ripristina'}
             </Button>
           </DialogFooter>
         </DialogContent>
