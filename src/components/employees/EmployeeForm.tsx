@@ -115,8 +115,8 @@ export function EmployeeForm({ employeeId, defaultValues, availableRoles, isAdmi
         toast({ title: 'Errore', description: result.error, variant: 'destructive' })
       } else {
         toast({ title: employeeId ? 'Dipendente aggiornato' : 'Dipendente creato' })
-        if (!employeeId && 'id' in result) {
-          onSuccess?.({ id: result.id, firstName: values.first_name, lastName: values.last_name })
+        if (!employeeId && 'id' in result && result.id) {
+          onSuccess?.({ id: result.id as string, firstName: values.first_name, lastName: values.last_name })
         } else {
           onSuccess?.()
         }
