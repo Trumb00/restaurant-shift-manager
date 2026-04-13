@@ -19,10 +19,12 @@ import { WeekNavigator } from './WeekNavigator'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { updateShift, copyWeekSchedule, resetWeekSchedule } from '@/app/actions/shifts'
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import { updateShift, copyWeekSchedule, resetWeekSchedule, getMonthShifts } from '@/app/actions/shifts'
 import { useToast } from '@/hooks/use-toast'
-import { Plus, Send, Copy, RotateCcw } from 'lucide-react'
-import { formatTime, dayOfWeekLabel, getISOWeekNumber } from '@/lib/utils'
+import { Plus, Send, Copy, RotateCcw, FileDown } from 'lucide-react'
+import { formatTime, dayOfWeekLabel, getISOWeekNumber, getWeekDates } from '@/lib/utils'
+import { downloadWeeklyPDF, downloadMonthlyPDF } from '@/lib/pdf'
 import { cn } from '@/lib/utils'
 import { useRouter } from 'next/navigation'
 
@@ -160,6 +162,7 @@ export function ShiftPlanner({
   const [copyOpen, setCopyOpen] = React.useState(false)
   const [resetOpen, setResetOpen] = React.useState(false)
   const [resetting, setResetting] = React.useState(false)
+  const [pdfLoading, setPdfLoading] = React.useState(false)
   const [selectedWeeks, setSelectedWeeks] = React.useState<Set<string>>(new Set())
   const [copying, setCopying] = React.useState(false)
   const [selectedCell, setSelectedCell] = React.useState<{ slotId: string; date: string } | null>(null)
@@ -310,6 +313,27 @@ export function ShiftPlanner({
     }
   }
 
+  function handleWeeklyPDF() {
+    downloadWeeklyPDF({ weekDates, timeSlots, shifts })
+  }
+
+  async function handleMonthlyPDF() {
+    setPdfLoading(true)
+    const year = weekStart.getUTCFullYear()
+    const month = weekStart.getUTCMonth() + 1
+    const result = await getMonthShifts(year, month)
+    setPdfLoading(false)
+    if (result.error || !result.data) {
+      toast({ title: 'Errore PDF', description: result.error ?? 'Errore sconosciuto', variant: 'destructive' })
+      return
+    }
+    const weeks = result.data.weeks.map((w) => ({
+      ...w,
+      weekDates: getWeekDates(new Date(w.weekStart + 'T00:00:00Z')),
+    }))
+    downloadMonthlyPDF({ year, month, timeSlots: result.data.timeSlots, weeks })
+  }
+
   const uniqueEmployees = [...new Set(shifts.map((s) => s.employee_id))]
 
   return (
@@ -333,6 +357,18 @@ export function ShiftPlanner({
               Copia settimana
             </Button>
           )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={pdfLoading}>
+                <FileDown className="w-4 h-4 mr-2" />
+                {pdfLoading ? 'Generazione…' : 'Scarica PDF'}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleWeeklyPDF}>PDF settimanale</DropdownMenuItem>
+              <DropdownMenuItem onClick={handleMonthlyPDF}>PDF mensile</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {canEdit && scheduleStatus !== 'archived' && (
             <Button
               size="sm"

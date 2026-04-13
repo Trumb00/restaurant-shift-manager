@@ -766,3 +766,82 @@ export async function copyWeekSchedule(
   revalidatePath('/dashboard/turni')
   return { scheduleId: targetSchedule.id }
 }
+
+export interface MonthShiftRow {
+  employee_id: string
+  time_slot_id: string
+  date: string
+  employees: { first_name: string; last_name: string } | null
+  roles: { name: string; color: string } | null
+}
+
+export interface MonthShiftWeek {
+  weekStart: string
+  weekEnd: string
+  shifts: MonthShiftRow[]
+}
+
+export interface MonthShiftsResult {
+  weeks: MonthShiftWeek[]
+  timeSlots: Array<{ id: string; name: string; start_time: string; end_time: string }>
+}
+
+export async function getMonthShifts(
+  year: number,
+  month: number,
+): Promise<{ data?: MonthShiftsResult; error?: string }> {
+  const supabase = await createClient()
+
+  const monthStart = `${year}-${String(month).padStart(2, '0')}-01`
+  const lastDay = new Date(year, month, 0).getDate()
+  const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+
+  const { data: schedules, error: schedErr } = await supabase
+    .from('schedules')
+    .select('id, week_start, week_end')
+    .lte('week_start', monthEnd)
+    .gte('week_end', monthStart)
+    .order('week_start')
+
+  if (schedErr) return { error: schedErr.message }
+  if (!schedules || schedules.length === 0) return { data: { weeks: [], timeSlots: [] } }
+
+  const scheduleIds = schedules.map((s) => s.id)
+
+  const [{ data: shifts, error: shiftsErr }, { data: timeSlots, error: tsErr }] = await Promise.all([
+    supabase
+      .from('shifts')
+      .select('schedule_id, employee_id, time_slot_id, date, employees(first_name, last_name), roles(name, color)')
+      .in('schedule_id', scheduleIds)
+      .neq('status', 'cancelled'),
+    supabase
+      .from('time_slots')
+      .select('id, name, start_time, end_time')
+      .eq('is_active', true)
+      .order('start_time'),
+  ])
+
+  if (shiftsErr) return { error: shiftsErr.message }
+  if (tsErr) return { error: tsErr.message }
+
+  const shiftMap = new Map<string, typeof shifts>()
+  for (const s of shifts ?? []) {
+    const arr = shiftMap.get(s.schedule_id) ?? []
+    arr.push(s)
+    shiftMap.set(s.schedule_id, arr)
+  }
+
+  const weeks: MonthShiftWeek[] = schedules.map((sched) => ({
+    weekStart: sched.week_start,
+    weekEnd: sched.week_end,
+    shifts: (shiftMap.get(sched.id) ?? []).map((s) => ({
+      employee_id: s.employee_id ?? '',
+      time_slot_id: s.time_slot_id ?? '',
+      date: s.date,
+      employees: Array.isArray(s.employees) ? (s.employees[0] ?? null) : s.employees,
+      roles: Array.isArray(s.roles) ? (s.roles[0] ?? null) : s.roles,
+    })),
+  }))
+
+  return { data: { weeks, timeSlots: timeSlots ?? [] } }
+}
