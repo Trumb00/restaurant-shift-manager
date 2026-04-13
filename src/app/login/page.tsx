@@ -7,9 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { UtensilsCrossed, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
-import { requestMagicLink, requestPasswordReset } from '@/app/actions/auth'
+import { requestPasswordReset } from '@/app/actions/auth'
 
 type AuthError = { message: string } | null
 
@@ -20,12 +19,10 @@ function LoginForm() {
 
   const [email, setEmail] = React.useState('')
   const [password, setPassword] = React.useState('')
-  const [magicEmail, setMagicEmail] = React.useState('')
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<AuthError>(
     urlError === 'auth' ? { message: 'Link di autenticazione non valido o scaduto. Riprova.' } : null
   )
-  const [magicSuccess, setMagicSuccess] = React.useState(false)
 
   const [forgotView, setForgotView] = React.useState(false)
   const [forgotEmail, setForgotEmail] = React.useState('')
@@ -56,24 +53,6 @@ function LoginForm() {
 
     router.push('/dashboard')
     router.refresh()
-  }
-
-  async function handleMagicLink(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
-    setMagicSuccess(false)
-
-    const result = await requestMagicLink(magicEmail)
-
-    if (result.error) {
-      setError({ message: result.error })
-      setLoading(false)
-      return
-    }
-
-    setMagicSuccess(true)
-    setLoading(false)
   }
 
   async function handleForgotPassword(e: React.FormEvent<HTMLFormElement>) {
@@ -112,7 +91,7 @@ function LoginForm() {
         <Card className="shadow-lg">
           <CardHeader className="pb-4">
             <CardTitle className="text-center text-lg">Accedi al tuo account</CardTitle>
-            <CardDescription className="text-center">Scegli il metodo di accesso preferito</CardDescription>
+            <CardDescription className="text-center">Inserisci le tue credenziali per accedere</CardDescription>
           </CardHeader>
 
           <CardContent>
@@ -123,95 +102,58 @@ function LoginForm() {
               </div>
             )}
 
-            <Tabs defaultValue="password" className="w-full">
-              <TabsList className="grid w-full grid-cols-2 mb-4">
-                <TabsTrigger value="password">Password</TabsTrigger>
-                <TabsTrigger value="magic">Magic Link</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="password">
-                {forgotView ? (
-                  forgotSuccess ? (
-                    <div className="flex flex-col items-center gap-3 py-6 text-center">
-                      <div className="flex items-center justify-center w-12 h-12 rounded-full bg-green-50">
-                        <CheckCircle2 className="w-6 h-6 text-green-600" />
-                      </div>
-                      <div>
-                        <p className="font-medium">Email inviata!</p>
-                        <p className="text-sm text-gray-500 mt-1">Controlla la tua casella e clicca il link per impostare la nuova password.</p>
-                      </div>
-                      <Button variant="ghost" size="sm" onClick={() => { setForgotView(false); setForgotSuccess(false); setForgotEmail('') }}>
-                        Torna al login
-                      </Button>
-                    </div>
-                  ) : (
-                    <form onSubmit={handleForgotPassword} className="space-y-4">
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium">Reimposta password</p>
-                        <p className="text-xs text-gray-500">Inserisci la tua email e ti invieremo un link per reimpostare la password.</p>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="forgot-email">Email</Label>
-                        <Input id="forgot-email" type="email" placeholder="nome@ristorante.it" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} required autoComplete="email" disabled={forgotLoading} />
-                      </div>
-                      <Button type="submit" className="w-full" disabled={forgotLoading || !forgotEmail}>
-                        {forgotLoading ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Invio in corso...</> : 'Invia link di reset'}
-                      </Button>
-                      <button type="button" className="w-full text-xs text-gray-400 hover:text-indigo-500 text-center" onClick={() => { setForgotView(false); setError(null) }}>
-                        ← Torna al login
-                      </button>
-                    </form>
-                  )
-                ) : (
-                  <form onSubmit={handlePasswordLogin} className="space-y-4">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="email">Email</Label>
-                      <Input id="email" name="email" type="email" placeholder="nome@ristorante.it" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" disabled={loading} />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="password">Password</Label>
-                      <Input id="password" name="password" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" disabled={loading} />
-                    </div>
-                    <Button type="submit" className="w-full" disabled={loading}>
-                      {loading ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Accesso in corso...</> : 'Accedi'}
-                    </Button>
-                    <div className="text-right">
-                      <button type="button" className="text-xs text-gray-400 hover:text-indigo-500" onClick={() => { setForgotView(true); setError(null) }}>
-                        Hai dimenticato la password?
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </TabsContent>
-
-              <TabsContent value="magic">
-                {magicSuccess ? (
-                  <div className="flex flex-col items-center gap-3 py-6 text-center">
-                    <div className="flex items-center justify-center w-12 h-12 rounded-full bg-green-50">
-                      <CheckCircle2 className="w-6 h-6 text-green-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium">Email inviata!</p>
-                      <p className="text-sm text-gray-500 mt-1">Controlla la tua casella di posta e clicca il link per accedere.</p>
-                    </div>
-                    <Button variant="ghost" size="sm" onClick={() => { setMagicSuccess(false); setMagicEmail('') }}>
-                      Usa un&apos;altra email
-                    </Button>
+            {forgotView ? (
+              forgotSuccess ? (
+                <div className="flex flex-col items-center gap-3 py-6 text-center">
+                  <div className="flex items-center justify-center w-12 h-12 rounded-full bg-green-50">
+                    <CheckCircle2 className="w-6 h-6 text-green-600" />
                   </div>
-                ) : (
-                  <form onSubmit={handleMagicLink} className="space-y-4">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="magic-email">Email</Label>
-                      <Input id="magic-email" type="email" placeholder="nome@ristorante.it" value={magicEmail} onChange={(e) => setMagicEmail(e.target.value)} required autoComplete="email" disabled={loading} />
-                    </div>
-                    <p className="text-xs text-gray-500">Riceverai un link sicuro via email per accedere senza password.</p>
-                    <Button type="submit" className="w-full" disabled={loading || !magicEmail}>
-                      {loading ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Invio in corso...</> : 'Invia Magic Link'}
-                    </Button>
-                  </form>
-                )}
-              </TabsContent>
-            </Tabs>
+                  <div>
+                    <p className="font-medium">Email inviata!</p>
+                    <p className="text-sm text-gray-500 mt-1">Controlla la tua casella e clicca il link per impostare la nuova password.</p>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => { setForgotView(false); setForgotSuccess(false); setForgotEmail('') }}>
+                    Torna al login
+                  </Button>
+                </div>
+              ) : (
+                <form onSubmit={handleForgotPassword} className="space-y-4">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">Reimposta password</p>
+                    <p className="text-xs text-gray-500">Inserisci la tua email e ti invieremo un link per reimpostare la password.</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="forgot-email">Email</Label>
+                    <Input id="forgot-email" type="email" placeholder="nome@ristorante.it" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} required autoComplete="email" disabled={forgotLoading} />
+                  </div>
+                  <Button type="submit" className="w-full" disabled={forgotLoading || !forgotEmail}>
+                    {forgotLoading ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Invio in corso...</> : 'Invia link di reset'}
+                  </Button>
+                  <button type="button" className="w-full text-xs text-gray-400 hover:text-indigo-500 text-center" onClick={() => { setForgotView(false); setError(null) }}>
+                    ← Torna al login
+                  </button>
+                </form>
+              )
+            ) : (
+              <form onSubmit={handlePasswordLogin} className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="email">Email</Label>
+                  <Input id="email" name="email" type="email" placeholder="nome@ristorante.it" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" disabled={loading} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="password">Password</Label>
+                  <Input id="password" name="password" type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password" disabled={loading} />
+                </div>
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Accesso in corso...</> : 'Accedi'}
+                </Button>
+                <div className="text-right">
+                  <button type="button" className="text-xs text-gray-400 hover:text-indigo-500" onClick={() => { setForgotView(true); setError(null) }}>
+                    Hai dimenticato la password?
+                  </button>
+                </div>
+              </form>
+            )}
           </CardContent>
 
           <CardFooter className="justify-center pb-6">
