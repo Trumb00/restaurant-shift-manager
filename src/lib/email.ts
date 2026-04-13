@@ -15,10 +15,9 @@ export interface EmailPayload {
   html: string
 }
 
-export async function sendEmail(payload: EmailPayload) {
+export async function sendEmail(payload: EmailPayload): Promise<{ error?: string }> {
   if (!process.env.RESEND_API_KEY) {
-    console.warn('[email] RESEND_API_KEY not set, skipping email send.')
-    return
+    return { error: 'RESEND_API_KEY non configurata.' }
   }
   const { error } = await getResend().emails.send({
     from: FROM,
@@ -28,7 +27,9 @@ export async function sendEmail(payload: EmailPayload) {
   })
   if (error) {
     console.error('[email] Failed to send:', error)
+    return { error: (error as { message?: string }).message ?? 'Invio fallito.' }
   }
+  return {}
 }
 
 // ── Email templates ─────────────────────────────────────────────────────────

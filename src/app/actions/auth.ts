@@ -60,11 +60,12 @@ async function sendSetPasswordEmail(
 
   if (!actionLink) return { error: 'Impossibile generare il link.' }
 
-  await sendEmail({
+  const { error: emailError } = await sendEmail({
     to: email,
     subject: 'Imposta la tua password — GestioneTurni',
     html: setPasswordEmail(name, actionLink),
   })
+  if (emailError) return { error: emailError }
 
   return {}
 }
