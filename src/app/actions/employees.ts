@@ -90,6 +90,20 @@ export async function updateEmployee(id: string, data: Partial<EmployeeInput>): 
   return {}
 }
 
+export async function bulkToggleActive(ids: string[], is_active: boolean): Promise<{ error?: string }> {
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('employees')
+    .update({ is_active, updated_at: new Date().toISOString() })
+    .in('id', ids)
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/dashboard/dipendenti')
+  return {}
+}
+
 export async function toggleEmployeeActive(id: string, is_active: boolean): Promise<{ error?: string }> {
   const supabase = await createClient()
 

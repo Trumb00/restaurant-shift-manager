@@ -48,6 +48,31 @@ export async function sendEmployeeInvite(employeeId: string): Promise<{ error?: 
   return {}
 }
 
+export async function bulkSendInvites(employeeIds: string[]): Promise<{ sent: number; failed: number }> {
+  const admin = createAdminClient()
+
+  const { data: employees } = await admin
+    .from('employees')
+    .select('id, email, is_active')
+    .in('id', employeeIds)
+
+  if (!employees) return { sent: 0, failed: employeeIds.length }
+
+  const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/auth/reset-password`
+  let sent = 0
+  let failed = 0
+
+  await Promise.all(
+    employees.map(async (emp) => {
+      if (!emp.is_active) { failed++; return }
+      const { error } = await admin.auth.admin.inviteUserByEmail(emp.email, { redirectTo })
+      if (error) { failed++ } else { sent++ }
+    })
+  )
+
+  return { sent, failed }
+}
+
 export async function requestPasswordReset(email: string): Promise<{ error?: string }> {
   const admin = createAdminClient()
 
