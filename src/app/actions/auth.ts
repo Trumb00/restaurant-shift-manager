@@ -39,6 +39,8 @@ async function sendSetPasswordEmail(
 
   // Try invite link first (creates auth user if they don't have one yet)
   let actionLink: string | undefined
+  let authUserId: string | undefined
+
   const { data: inviteData, error: inviteError } = await admin.auth.admin.generateLink({
     type: 'invite',
     email,
@@ -47,6 +49,7 @@ async function sendSetPasswordEmail(
 
   if (!inviteError) {
     actionLink = inviteData.properties.action_link
+    authUserId = inviteData.user.id
   } else {
     // User already has an auth account — generate a recovery (password reset) link
     const { data: recoveryData, error: recoveryError } = await admin.auth.admin.generateLink({
@@ -56,9 +59,17 @@ async function sendSetPasswordEmail(
     })
     if (recoveryError) return { error: recoveryError.message }
     actionLink = recoveryData.properties.action_link
+    authUserId = recoveryData.user.id
   }
 
-  if (!actionLink) return { error: 'Impossibile generare il link.' }
+  if (!actionLink || !authUserId) return { error: 'Impossibile generare il link.' }
+
+  // Link the auth user to the employees row (populates user_id so the role is readable)
+  await admin
+    .from('employees')
+    .update({ user_id: authUserId })
+    .ilike('email', email)
+    .is('user_id', null)
 
   const { error: emailError } = await sendEmail({
     to: email,
