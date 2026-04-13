@@ -2,6 +2,7 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
+import { sendEmail, setPasswordEmail } from '@/lib/email'
 
 export async function requestMagicLink(email: string): Promise<{ error?: string }> {
   const admin = createAdminClient()
@@ -29,14 +30,42 @@ export async function requestMagicLink(email: string): Promise<{ error?: string 
   return {}
 }
 
-async function sendSetPasswordEmail(admin: ReturnType<typeof createAdminClient>, email: string): Promise<{ error?: string }> {
+async function sendSetPasswordEmail(
+  admin: ReturnType<typeof createAdminClient>,
+  email: string,
+  name: string,
+): Promise<{ error?: string }> {
   const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/auth/reset-password`
-  // Try invite first — creates auth user if they don't have one yet
-  const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, { redirectTo })
-  if (!inviteError) return {}
-  // User already has an auth account — send a password reset email instead
-  const { error: resetError } = await admin.auth.resetPasswordForEmail(email, { redirectTo })
-  if (resetError) return { error: resetError.message }
+
+  // Try invite link first (creates auth user if they don't have one yet)
+  let actionLink: string | undefined
+  const { data: inviteData, error: inviteError } = await admin.auth.admin.generateLink({
+    type: 'invite',
+    email,
+    options: { redirectTo },
+  })
+
+  if (!inviteError) {
+    actionLink = inviteData.properties.action_link
+  } else {
+    // User already has an auth account — generate a recovery (password reset) link
+    const { data: recoveryData, error: recoveryError } = await admin.auth.admin.generateLink({
+      type: 'recovery',
+      email,
+      options: { redirectTo },
+    })
+    if (recoveryError) return { error: recoveryError.message }
+    actionLink = recoveryData.properties.action_link
+  }
+
+  if (!actionLink) return { error: 'Impossibile generare il link.' }
+
+  await sendEmail({
+    to: email,
+    subject: 'Imposta la tua password — GestioneTurni',
+    html: setPasswordEmail(name, actionLink),
+  })
+
   return {}
 }
 
@@ -52,7 +81,7 @@ export async function sendEmployeeInvite(employeeId: string): Promise<{ error?: 
   if (!emp) return { error: 'Dipendente non trovato.' }
   if (!emp.is_active) return { error: 'Il dipendente non è attivo.' }
 
-  return sendSetPasswordEmail(admin, emp.email)
+  return sendSetPasswordEmail(admin, emp.email, `${emp.first_name} ${emp.last_name}`)
 }
 
 export async function bulkSendInvites(employeeIds: string[]): Promise<{ sent: number; failed: number }> {
@@ -60,7 +89,7 @@ export async function bulkSendInvites(employeeIds: string[]): Promise<{ sent: nu
 
   const { data: employees } = await admin
     .from('employees')
-    .select('id, email, is_active')
+    .select('id, email, first_name, last_name, is_active')
     .in('id', employeeIds)
 
   if (!employees) return { sent: 0, failed: employeeIds.length }
@@ -71,7 +100,7 @@ export async function bulkSendInvites(employeeIds: string[]): Promise<{ sent: nu
   await Promise.all(
     employees.map(async (emp) => {
       if (!emp.is_active) { failed++; return }
-      const { error } = await sendSetPasswordEmail(admin, emp.email)
+      const { error } = await sendSetPasswordEmail(admin, emp.email, `${emp.first_name} ${emp.last_name}`)
       if (error) { failed++ } else { sent++ }
     })
   )
@@ -101,3 +130,4 @@ export async function requestPasswordReset(email: string): Promise<{ error?: str
   if (error) return { error: error.message }
   return {}
 }
+

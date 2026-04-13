@@ -162,6 +162,19 @@ export function scheduleUpdatedEmail(
   `)
 }
 
+export function setPasswordEmail(employeeName: string, actionLink: string): string {
+  return baseLayout(`
+    <p style="color: #374151; font-size: 15px; margin: 0 0 16px;">Ciao <strong>${employeeName}</strong>,</p>
+    <p style="color: #374151; font-size: 15px; margin: 0 0 16px;">
+      Sei stato aggiunto a <strong>GestioneTurni</strong>. Clicca il pulsante qui sotto per impostare la tua password e accedere all&apos;app.
+    </p>
+    <a href="${actionLink}" style="display: inline-block; background: #4f46e5; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
+      Imposta la password
+    </a>
+    <p style="color: #9ca3af; font-size: 12px; margin: 16px 0 0;">Il link scade tra 24 ore.</p>
+  `)
+}
+
 export function absenceNotificationEmail(managerName: string, employeeName: string, date: string, slotName: string, reason: string): string {
   return baseLayout(`
     <p style="color: #374151; font-size: 15px; margin: 0 0 16px;">Ciao <strong>${managerName}</strong>,</p>
